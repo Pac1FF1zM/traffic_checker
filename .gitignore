@@ -6,7 +6,9 @@ predictions*.json
 data/
 samples/
 tmp/
+outputs/
 weights/*.pt
 weights/*.pth
 weights/*.partial
+weights/*.metadata.json
 !weights/README.md

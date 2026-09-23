@@ -38,6 +38,11 @@ code emits a warning and automatically uses the YOLO+TTC baseline. Set
 `temporal_required: true` after installation to make a missing/broken temporal
 backend a hard error before submission.
 
+For the selected VideoMAE-B continuation run on a university T4, use the
+reproducible Linux bundle in [LAB_TRAINING.md](LAB_TRAINING.md). It includes a
+leakage preflight, DADA/DoTA configs, smoke profile, two-stage FP16 training,
+external validation, and strict inference-checkpoint export.
+
 Ultralytics uses AGPL-3.0 unless covered by an enterprise licence. Check that this
 is acceptable for your submission. If not, replace `YoloDetector` with an
 Apache-2.0 detector such as an RT-DETR implementation whose code and weights have
@@ -153,6 +158,9 @@ scripts/run_blind_model_comparison.py  frozen, causal comparison runner
 experiments/wiut_blind_protocol.json   pre-registered leakage controls
 DATASETS.md                 researched dataset shortlist
 FINETUNING.md               staged fine-tuning plan for a T4 GPU
+LAB_TRAINING.md             copy-to-lab VideoMAE-B training runbook
+configs/training            fixed full, alternate and smoke profiles
+scripts/lab                 setup, preflight, train, evaluate and export tools
 third_party/simple_tad      pinned upstream source (git submodule)
 run_submission.py           organizer file, unchanged
 evaluate.py                 organizer file, unchanged

@@ -7,11 +7,10 @@ DoTA. It is the initial teacher/backbone, not a ready-made 14-class WIUT model.
 ## Recommended stages
 
 1. **Reproduce inference first.** Initialise the submodule and download the
-   checkpoint. Run several normal and dangerous videos, save temporal scores,
-   and tune only `temporal_accident_threshold` on a held-out split.
-2. **Binary domain adaptation.** Fine-tune the existing 2-class head on DoTA,
-   DADA-2000 and any manually labelled WIUT `normal/accident` windows. Keep
-   16 frames sampled at 10 FPS so training matches `src/temporal.py`.
+   checkpoint. Verify loading and runtime without changing the model.
+2. **Binary domain adaptation.** Continue the existing 2-class head from the
+   DoTA checkpoint on DADA-2000. Keep 16 frames sampled at 10 FPS so training
+   matches `src/temporal.py`.
 3. **WIUT multi-label head.** Replace the 2-way softmax head with 14 sigmoid
    outputs and `BCEWithLogitsLoss`. A window can contain more than one event,
    so ordinary 14-way softmax is the wrong objective.
@@ -21,15 +20,19 @@ DoTA. It is the initial teacher/backbone, not a ready-made 14-class WIUT model.
 5. **Calibrate per class.** Select one threshold and minimum duration per class
    on validation data. Optimise event-level macro F1 rather than frame accuracy.
 
-## T4 starting recipe
+## Selected T4 recipe
 
 - input: `3 x 16 x 224 x 224`, sampled at 10 FPS;
 - mixed precision: FP16;
 - batch size: start at 2, accumulate gradients to an effective batch of 16;
-- optimiser: AdamW, backbone LR `1e-5`, head LR `1e-4`, weight decay `0.05`;
+- optimiser: AdamW, reference LR `5e-4` scaled by effective batch in the
+  upstream trainer, weight decay `0.05`, layer decay `0.6`;
 - freeze the first 8 transformer blocks for the first 2 epochs;
-- use class-balanced sampling and positive-class weights;
-- stop on validation event macro F1, not training loss.
+- train for 2 frozen plus 18 fully unfrozen epochs;
+- select the checkpoint by external validation AUROC, not training loss.
+
+The ready-to-run configs, preflight, smoke test, two-stage launcher, evaluation,
+and strict checkpoint exporter are documented in [LAB_TRAINING.md](LAB_TRAINING.md).
 
 The upstream training entry point is
 `third_party/simple_tad/run_frame_finetuning.py`; its reproducible configurations
@@ -41,7 +44,8 @@ until the team has produced a manifest containing `video_path`, `start_sec`,
 ## Leakage rules
 
 - split by source video, never by overlapping window;
-- never use test clips to choose thresholds;
+- never use WIUT blind/test clips to train, select checkpoints, choose
+  thresholds, or make qualitative model choices;
 - retain normal clips and hard negatives from busy intersections;
 - for causal Part B, every training window must end at the scored timestamp;
 - report results with the untouched organizer evaluator.
