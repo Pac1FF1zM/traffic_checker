@@ -22,10 +22,10 @@ to download.
 | X3D-S Kinetics-400 | action diagnostics only | CPU | 432 | 315.72 s | 1.754x | top-1 entropy median 0.4202; 4 unique top-1 classes |
 
 VideoMAE-S and VideoMAE-B scores had Pearson correlation 0.739; their maxima
-occurred at the same sampled timestamp. At a fixed diagnostic cutoff of 0.25
-(reported only as a descriptive comparison, not a selected WIUT threshold),
-their binary decisions agreed on 95.66% of samples. Neither model crossed 0.75;
-S had 2/438 samples above 0.5 and B had 0/438.
+occurred at the same sampled timestamp. No event threshold was applied to this
+unlabeled set. For descriptive context only, neither model crossed the existing
+0.75 submission threshold; S had 2/438 samples above 0.5 and B had 0/438, but
+these counts are not used for calibration or model selection.
 
 X3D-S must not be compared as an accident detector here: its public checkpoint
 has a 400-class Kinetics action head, not an accident-trained binary head. Its
