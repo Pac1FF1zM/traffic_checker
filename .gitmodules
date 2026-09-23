@@ -1,0 +1,3 @@
+[submodule "third_party/simple_tad"]
+	path = third_party/simple_tad
+	url = https://github.com/tue-mps/simple-tad.git

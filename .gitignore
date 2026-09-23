@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+predictions*.json
+data/
+samples/
+tmp/
+weights/*.pt
+weights/*.pth
+weights/*.partial
+!weights/README.md
