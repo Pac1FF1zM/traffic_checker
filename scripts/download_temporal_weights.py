@@ -1,4 +1,4 @@
-"""Download the recommended traffic-adapted Simple-TAD VideoMAE-B checkpoint."""
+"""Download the traffic-adapted Simple-TAD checkpoints used in comparisons."""
 from __future__ import annotations
 
 import shutil
@@ -9,28 +9,40 @@ from huggingface_hub import hf_hub_download
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGET = ROOT / "weights" / "simpletad_ft-dota_dapt-vm1-b_auroc.pth"
-PARTIAL = TARGET.with_suffix(TARGET.suffix + ".partial")
 REPO_ID = "tue-mps/simple-tad"
-FILENAME = "models/Finetune_DoTA/simpletad_ft-dota_dapt-vm1-b_auroc.pth"
-EXPECTED_BYTES = 172_489_826
+CHECKPOINTS = (
+    (
+        "models/Finetune_DoTA/simpletad_ft-dota_dapt-vm1-s_auroc.pth",
+        ROOT / "weights" / "simpletad_ft-dota_dapt-vm1-s_auroc.pth",
+        43_793_762,
+    ),
+    (
+        "models/Finetune_DoTA/simpletad_ft-dota_dapt-vm1-b_auroc.pth",
+        ROOT / "weights" / "simpletad_ft-dota_dapt-vm1-b_auroc.pth",
+        172_489_826,
+    ),
+)
 
 
 def main() -> None:
-    TARGET.parent.mkdir(parents=True, exist_ok=True)
-    if TARGET.is_file() and TARGET.stat().st_size == EXPECTED_BYTES:
-        print(f"Already downloaded: {TARGET}")
-        return
+    for filename, target, expected_bytes in CHECKPOINTS:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_file() and target.stat().st_size == expected_bytes:
+            print(f"Already downloaded: {target}")
+            continue
 
-    print(f"Downloading {EXPECTED_BYTES / 1024**2:.1f} MiB from Hugging Face...")
-    cached = Path(hf_hub_download(repo_id=REPO_ID, filename=FILENAME))
-    shutil.copy2(cached, PARTIAL)
+        partial = target.with_suffix(target.suffix + ".partial")
+        print(f"Downloading {expected_bytes / 1024**2:.1f} MiB from Hugging Face...")
+        cached = Path(hf_hub_download(repo_id=REPO_ID, filename=filename))
+        shutil.copy2(cached, partial)
 
-    actual = PARTIAL.stat().st_size
-    if actual != EXPECTED_BYTES:
-        raise RuntimeError(f"incomplete download: expected {EXPECTED_BYTES} bytes, got {actual}")
-    shutil.move(str(PARTIAL), str(TARGET))
-    print(f"Saved: {TARGET}")
+        actual = partial.stat().st_size
+        if actual != expected_bytes:
+            raise RuntimeError(
+                f"incomplete download: expected {expected_bytes} bytes, got {actual}"
+            )
+        shutil.move(str(partial), str(target))
+        print(f"Saved: {target}")
 
 
 if __name__ == "__main__":

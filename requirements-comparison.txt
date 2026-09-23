@@ -1,0 +1,2 @@
+-r requirements.txt
+pytorchvideo==0.1.5

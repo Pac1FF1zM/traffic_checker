@@ -8,7 +8,8 @@ The baseline combines:
 - YOLO11n COCO road-user detection;
 - deterministic IoU/centroid tracking;
 - temporal rules for stopped vehicles, congestion and TTC near-misses;
-- optional Simple-TAD DAPT VideoMAE-B risk recognition over the latest 16 frames;
+- optional Simple-TAD DAPT VideoMAE-S or VideoMAE-B risk recognition over the
+  latest 16 frames;
 - optional camera-calibrated rules for wrong-way driving, jaywalking,
   failure-to-yield, red-light running and solid-line crossing;
 - a causal `RiskEstimator` fusing track TTC and temporal-model risk.
@@ -90,6 +91,25 @@ Full Part A + causal Part B:
 python run_submission.py --videos samples --out predictions_samples.json --team TEAM
 ```
 
+### Leakage-free comparison on unlabeled videos
+
+The locked protocol in `experiments/wiut_blind_protocol.json` forbids training,
+calibration, threshold selection and manual frame review on the WIUT sample
+videos. It compares raw VideoMAE-S/B scores over deterministic windows and uses
+X3D-S only as an efficiency/action diagnostic because the public checkpoint has
+no accident head:
+
+```bash
+pip install -r requirements-comparison.txt
+python scripts/run_blind_model_comparison.py \
+  --videos data/wiut_blind/*.mp4 \
+  --out tmp/wiut_blind_results.json
+```
+
+This is a sanity/runtime test, not an accuracy leaderboard: the supplied videos
+have no ground-truth labels, so choosing a winner from their predictions would
+be methodologically invalid.
+
 With team-created labels:
 
 ```bash
@@ -129,6 +149,8 @@ src/geometry.py             geometry and segment post-processing
 configs/scene.example.json  camera calibration template
 scripts/download_weights.py one-time model download
 scripts/download_temporal_weights.py  Simple-TAD checkpoint download
+scripts/run_blind_model_comparison.py  frozen, causal comparison runner
+experiments/wiut_blind_protocol.json   pre-registered leakage controls
 DATASETS.md                 researched dataset shortlist
 FINETUNING.md               staged fine-tuning plan for a T4 GPU
 third_party/simple_tad      pinned upstream source (git submodule)

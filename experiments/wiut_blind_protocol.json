@@ -1,0 +1,57 @@
+{
+  "protocol_version": "1.0",
+  "locked_at": "2026-09-23T13:10:59+05:00",
+  "purpose": "Leakage-free sanity and runtime comparison on the unlabeled WIUT sample videos",
+  "video_source_file_ids": [
+    "1kR9jODA2Wotw4gwkvpRKdqFADNJNc1nS",
+    "1hp8DYeqtYHSwfM6qAo9FPSRHlpMFrIN_",
+    "10cHEReCWzO3u-Vk1CnNgHAx6egGy5MwJ",
+    "1aJ-QsAZVYJtLKHiRvKKeBq1D3GWNobRd"
+  ],
+  "models": [
+    {
+      "id": "simpletad_dapt_videomae_small_dota_auroc",
+      "task": "binary accident recognition",
+      "checkpoint": "weights/simpletad_ft-dota_dapt-vm1-s_auroc.pth",
+      "sha256": "1a80add75ba7341f519c7bff1b86cec1e405bcb0c364cf32e77f6668467f1619",
+      "input": "16 causal frames at 10 fps, 224x224",
+      "inference_stride_sampled_frames": 4
+    },
+    {
+      "id": "simpletad_dapt_videomae_base_dota_auroc",
+      "task": "binary accident recognition",
+      "checkpoint": "weights/simpletad_ft-dota_dapt-vm1-b_auroc.pth",
+      "sha256": "4d6df30cfb901d85cc30e9f3ea4700748b809411d2a8b3068a24680c47aa53f1",
+      "input": "16 causal frames at 10 fps, 224x224",
+      "inference_stride_sampled_frames": 4
+    },
+    {
+      "id": "x3d_s_kinetics400",
+      "task": "Kinetics-400 action recognition; efficiency reference only",
+      "checkpoint": "X3D_S.pyth",
+      "sha256": "26b95f1605d49650b54049db40ba3a56e023b86b58c3b3e0e10e0992a9c8682f",
+      "input": "13 causal frames at 5 fps, 182x182",
+      "inference_stride_sampled_frames": 2,
+      "comparability_note": "No public accident-trained X3D-S head was found, so its Kinetics logits must not be interpreted as accident risk or used to rank accident accuracy."
+    }
+  ],
+  "sampling": {
+    "window_seconds": 60,
+    "windows_per_video": 3,
+    "starts": "0, midpoint, and final full window, calculated from container duration without viewing frames"
+  },
+  "reported_metrics": [
+    "wall-clock runtime and processed-video-time factor",
+    "raw Simple-TAD risk-score distribution",
+    "agreement and disagreement between VideoMAE-S and VideoMAE-B",
+    "X3D-S output entropy and top-1 stability, explicitly not accident accuracy"
+  ],
+  "leakage_controls": [
+    "No WIUT frame is used for training, fine-tuning, calibration, checkpoint selection, threshold selection, or manual annotation.",
+    "No video frame is manually viewed before or during inference; only technical metadata is read.",
+    "Every prediction consumes only the current and earlier frames within its causal input window.",
+    "Raw scores are saved; no event threshold is selected from these videos.",
+    "Model choice is not made from this unlabeled set because accuracy cannot be measured without labels.",
+    "Inaccessible Drive files are reported as unavailable and are not replaced after inspecting results."
+  ]
+}

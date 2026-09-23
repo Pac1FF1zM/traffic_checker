@@ -35,6 +35,7 @@
   "temporal_required": false,
   "temporal_source_path": "third_party/simple_tad/run_inference_simple.py",
   "temporal_checkpoint_path": "weights/simpletad_ft-dota_dapt-vm1-b_auroc.pth",
+  "temporal_arch": "videomae_base",
   "temporal_device": "auto",
   "temporal_window_frames": 16,
   "temporal_view_fps": 10.0,

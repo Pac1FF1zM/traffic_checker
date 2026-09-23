@@ -38,7 +38,7 @@ def prepare_frame(frame: np.ndarray, size: int = 224) -> np.ndarray:
 
 
 class TemporalRiskModel:
-    """Sliding-window VideoMAE-B model that only sees current/past frames."""
+    """Sliding-window Simple-TAD model that only sees current/past frames."""
 
     _MODEL_CACHE: dict[tuple[str, str, str], Any] = {}
 
@@ -50,6 +50,11 @@ class TemporalRiskModel:
         self.view_fps = float(config.get("temporal_view_fps", 10.0))
         if self.view_fps <= 0:
             raise ValueError("temporal_view_fps must be positive")
+        self.arch = str(config.get("temporal_arch", "videomae_base")).lower()
+        if self.arch not in {"videomae_small", "videomae_base"}:
+            raise ValueError(
+                "temporal_arch must be 'videomae_small' or 'videomae_base'"
+            )
 
         checkpoint = Path(str(config["temporal_checkpoint_path"]))
         source = Path(str(config["temporal_source_path"]))
@@ -74,7 +79,11 @@ class TemporalRiskModel:
         elif requested.isdigit():
             requested = f"cuda:{requested}"
         self.device = torch.device(requested)
-        cache_key = (str(self.source.resolve()), str(self.checkpoint.resolve()), str(self.device))
+        cache_key = (
+            str(self.source.resolve()),
+            str(self.checkpoint.resolve()),
+            f"{self.device}:{self.arch}",
+        )
         if cache_key not in self._MODEL_CACHE:
             self._MODEL_CACHE[cache_key] = self._load_model(torch)
         self.model = self._MODEL_CACHE[cache_key]
@@ -99,7 +108,11 @@ class TemporalRiskModel:
             finally:
                 sys.dont_write_bytecode = previous_bytecode_setting
 
-        model = module.get_video_vit_base(with_flash=False)
+        factory_name = {
+            "videomae_small": "get_video_vit_small",
+            "videomae_base": "get_video_vit_base",
+        }[self.arch]
+        model = getattr(module, factory_name)(with_flash=False)
         try:
             state = torch.load(self.checkpoint, map_location="cpu", weights_only=True)
         except TypeError:  # torch < 2.0
@@ -137,7 +150,9 @@ class TemporalRiskModel:
 
         clip = np.stack(tuple(self.frames), axis=1)  # C, T, H, W
         tensor = torch.from_numpy(clip).unsqueeze(0).to(self.device, non_blocking=True)
-        with torch.inference_mode():
+        # DirectML cannot create some view version counters for inference
+        # tensors; no_grad remains read-only while working on that backend.
+        with torch.no_grad():
             output = self.model(tensor)
         self.last_score = float(output[0, 1].detach().cpu().item())
         return self.last_score
