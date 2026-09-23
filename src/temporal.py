@@ -92,7 +92,12 @@ class TemporalRiskModel:
                 raise RuntimeError(f"cannot import Simple-TAD from {self.source}")
             module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = module
-            spec.loader.exec_module(module)
+            previous_bytecode_setting = sys.dont_write_bytecode
+            sys.dont_write_bytecode = True
+            try:
+                spec.loader.exec_module(module)
+            finally:
+                sys.dont_write_bytecode = previous_bytecode_setting
 
         model = module.get_video_vit_base(with_flash=False)
         try:
