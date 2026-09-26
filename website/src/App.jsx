@@ -1,4 +1,5 @@
 import './App.css'
+import member1 from './assets/team/member1.jpg'
 import member2 from './assets/team/member2.jpg'
 import member3 from './assets/team/member3.jpg'
 
@@ -415,10 +416,16 @@ function App() {
           </div>
 
 
- <div className="team-grid">
+<div className="team-grid">
 
   <article className="team-card">
     <div className="team-number">01</div>
+
+    <img
+      src={member1}
+      className="team-photo"
+      alt="ML Developer team member"
+    />
 
     <h3>ML Developer</h3>
 
@@ -478,7 +485,6 @@ function App() {
   </article>
 
 </div>
-
           {/* FINAL CTA */}
           <div className="final-card">
 
@@ -498,14 +504,14 @@ function App() {
               </p>
             </div>
 
-            <a
-              href="https://github.com/"
-              target="_blank"
-              rel="noreferrer"
-              className="primary-button final-button"
-            >
-              View Repository →
-            </a>
+           <a
+  href="https://github.com/Pac1FF1zM/traffic_checker"
+  target="_blank"
+  rel="noreferrer"
+  className="primary-button final-button"
+>
+  View Repository →
+</a>
 
           </div>
 
