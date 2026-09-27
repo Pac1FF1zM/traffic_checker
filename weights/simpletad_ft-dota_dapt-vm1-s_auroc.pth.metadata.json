@@ -1,0 +1,13 @@
+{
+  "created_at_utc": "2026-09-27T18:23:17.372908+00:00",
+  "architecture": "videomae_small",
+  "num_classes": 2,
+  "num_frames": 16,
+  "view_fps": 10,
+  "input_size": 224,
+  "source": "C:\\Users\\RUSLANDO\\Desktop\\traffic_checker\\outputs\\videomae_s_windows_half\\deadline_b1_u16_w4_gc1_alloc-fast\\stage2_full\\checkpoint-bestauroc.pth",
+  "source_sha256": "cc9bac3fa61695f4cb3cf7d8e73c948e97fe14d6fe1c9f461e234d1235b985e7",
+  "output": "C:\\Users\\RUSLANDO\\Desktop\\traffic_checker\\weights\\simpletad_ft-dota_dapt-vm1-s_auroc.pth",
+  "output_sha256": "b54a2507b39a6bb4d4536f315939e6491c64634a7009b81514cdf86e194eb34a",
+  "strict_load_verified": true
+}
