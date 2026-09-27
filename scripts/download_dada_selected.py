@@ -121,6 +121,23 @@ class HTTPRangeReader:
                 )
                 response = urllib.request.urlopen(request, timeout=90)
                 content_range = response.headers.get("Content-Range", "")
+                if response.status == 200 and not content_range:
+                    response.close()
+                    self.retries += 1
+                    if self.retries > 12:
+                        raise RuntimeError(
+                            f"Google Drive kept throttling range requests for {self.label}"
+                        )
+                    cooldowns = (15, 30, 60, 120, 300, 600)
+                    delay = cooldowns[min(self.retries - 1, len(cooldowns) - 1)]
+                    print(
+                        f"Google Drive temporarily throttled {self.label}; "
+                        f"cooling down for {delay}s "
+                        f"(attempt {self.retries}/12)",
+                        flush=True,
+                    )
+                    time.sleep(delay)
+                    continue
                 if response.status != 206 or not content_range.startswith(
                     f"bytes {self.position}-"
                 ):
