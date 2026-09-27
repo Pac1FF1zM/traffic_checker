@@ -77,13 +77,24 @@ locally.
 
 ## Smoke test
 
+Each smoke run uses an isolated timestamped output directory, so benchmark
+checkpoints cannot be resumed accidentally by a full run. Both profiles keep
+the same effective batch of 16.
+
 ```powershell
-.\scripts\windows\train_videomae_s_half.ps1 -DataRoot C:\datasets\DADA2000 -Smoke
+.\scripts\windows\train_videomae_s_half.ps1 -DataRoot C:\datasets\DADA2000 -Smoke -FullArchiveCheck -BatchSize 1 -NumWorkers 4
+
+# Run only after batch 1 succeeds. This automatically uses update frequency 8.
+.\scripts\windows\train_videomae_s_half.ps1 -DataRoot C:\datasets\DADA2000 -Smoke -BatchSize 2 -NumWorkers 4
 ```
 
 The preflight checks package versions, VRAM, checkpoint presence, archive
 integrity samples, duplicate sources, pairwise split overlap, and forbidden
-WIUT references. Training does not start if any check fails.
+WIUT references. Training does not start if any check fails. The optimized
+allocator avoids the upstream cache flush before every batch; add
+`-ConservativeAllocator` only if CUDA reports fragmentation or an out-of-memory
+error. Gradient checkpointing stays enabled unless explicitly disabled with
+`-NoGradientCheckpointing`.
 
 ## Full run
 
