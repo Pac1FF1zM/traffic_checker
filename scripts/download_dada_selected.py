@@ -101,18 +101,33 @@ class HTTPRangeReader:
     def _open(self) -> None:
         while True:
             try:
+                # Google Drive can cache a full-file (HTTP 200) response after many
+                # requests and then ignore Range for the same URL.  A unique,
+                # otherwise ignored query value keeps every byte-range request
+                # independent without changing the source object.
+                separator = "&" if "?" in self.url else "?"
+                request_url = (
+                    f"{self.url}{separator}range_request="
+                    f"{self.position}-{time.time_ns()}"
+                )
                 request = urllib.request.Request(
-                    self.url,
+                    request_url,
                     headers={
                         "Range": f"bytes={self.position}-{self.end - 1}",
                         "User-Agent": USER_AGENT,
+                        "Accept-Encoding": "identity",
+                        "Cache-Control": "no-cache",
                     },
                 )
                 response = urllib.request.urlopen(request, timeout=90)
-                if response.status != 206:
+                content_range = response.headers.get("Content-Range", "")
+                if response.status != 206 or not content_range.startswith(
+                    f"bytes {self.position}-"
+                ):
                     response.close()
                     raise RuntimeError(
-                        f"Server ignored byte range for {self.label}: HTTP {response.status}"
+                        f"Server ignored byte range for {self.label}: "
+                        f"HTTP {response.status}, Content-Range={content_range!r}"
                     )
                 self.response = response
                 return
