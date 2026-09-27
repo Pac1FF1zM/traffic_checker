@@ -52,13 +52,19 @@ def read_split(path: Path) -> list[str]:
     return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def audit_splits(train_path: Path, val_path: Path) -> dict[str, Any]:
+def audit_splits(
+    train_path: Path, val_path: Path, test_path: Path | None = None
+) -> dict[str, Any]:
     train = read_split(train_path)
     val = read_split(val_path)
+    test = read_split(test_path) if test_path is not None else []
     train_counts = Counter(train)
     val_counts = Counter(val)
+    test_counts = Counter(test)
     overlap = sorted(set(train).intersection(val))
-    combined = [item.lower() for item in train + val]
+    train_test_overlap = sorted(set(train).intersection(test))
+    validation_test_overlap = sorted(set(val).intersection(test))
+    combined = [item.lower() for item in train + val + test]
     forbidden = sorted(
         item
         for item in combined
@@ -67,14 +73,21 @@ def audit_splits(train_path: Path, val_path: Path) -> dict[str, Any]:
     return {
         "train_count": len(train),
         "validation_count": len(val),
+        "test_count": len(test),
         "train_duplicates": sorted(item for item, count in train_counts.items() if count > 1),
         "validation_duplicates": sorted(item for item, count in val_counts.items() if count > 1),
+        "test_duplicates": sorted(item for item, count in test_counts.items() if count > 1),
         "train_sha256": file_sha256(train_path),
         "validation_sha256": file_sha256(val_path),
+        "test_sha256": file_sha256(test_path) if test_path is not None else None,
         "overlap": overlap,
+        "train_validation_overlap": overlap,
+        "train_test_overlap": train_test_overlap,
+        "validation_test_overlap": validation_test_overlap,
         "forbidden_wiut_references": forbidden,
         "train_items": train,
         "validation_items": val,
+        "test_items": test,
     }
 
 
@@ -87,39 +100,70 @@ def inspect_zip(path: Path) -> int:
     return len(names)
 
 
-def validate_dataset(kind: str, root: Path, full_check: bool) -> tuple[dict[str, Any], list[str]]:
+def validate_dataset(
+    kind: str,
+    root: Path,
+    full_check: bool,
+    train_split: str | None = None,
+    validation_split: str | None = None,
+    test_split: str | None = None,
+) -> tuple[dict[str, Any], list[str]]:
     errors: list[str] = []
     if kind == "DoTA":
-        train_path = root / "dataset" / "train_split.txt"
-        val_path = root / "dataset" / "val_split.txt"
+        split_root = root / "dataset"
+        train_path = split_root / (train_split or "train_split.txt")
+        val_path = split_root / (validation_split or "val_split.txt")
+        test_path = split_root / test_split if test_split else None
         annotations = root / "dataset" / "annotations"
     else:
-        train_path = root / "DADA2K_my_split" / "training.txt"
-        val_path = root / "DADA2K_my_split" / "validation.txt"
+        split_root = root / "DADA2K_my_split"
+        train_path = split_root / (train_split or "training.txt")
+        val_path = split_root / (validation_split or "validation.txt")
+        test_path = split_root / test_split if test_split else None
         annotations = root / "annotation" / "full_anno.csv"
 
-    for required in (train_path, val_path, annotations, root / "frames"):
+    required_paths = [train_path, val_path, annotations, root / "frames"]
+    if test_path is not None:
+        required_paths.append(test_path)
+    for required in required_paths:
         if not required.exists():
             errors.append(f"missing dataset path: {required}")
     if errors:
         return {}, errors
 
-    audit = audit_splits(train_path, val_path)
+    audit = audit_splits(train_path, val_path, test_path)
     if not audit["train_items"] or not audit["validation_items"]:
         errors.append("training and validation splits must both be non-empty")
     if audit["overlap"]:
         errors.append(
             f"train/validation leakage: {len(audit['overlap'])} source videos overlap"
         )
-    if audit["train_duplicates"] or audit["validation_duplicates"]:
+    if audit["train_test_overlap"]:
+        errors.append(
+            f"train/test leakage: {len(audit['train_test_overlap'])} source videos overlap"
+        )
+    if audit["validation_test_overlap"]:
+        errors.append(
+            "validation/test leakage: "
+            f"{len(audit['validation_test_overlap'])} source videos overlap"
+        )
+    if (
+        audit["train_duplicates"]
+        or audit["validation_duplicates"]
+        or audit["test_duplicates"]
+    ):
         errors.append("duplicate source videos found inside a split")
     if audit["forbidden_wiut_references"]:
         errors.append("WIUT sample references found in external training splits")
 
     if full_check:
-        items = audit["train_items"] + audit["validation_items"]
+        items = audit["train_items"] + audit["validation_items"] + audit["test_items"]
     else:
-        items = audit["train_items"][:6] + audit["validation_items"][:6]
+        items = (
+            audit["train_items"][:6]
+            + audit["validation_items"][:6]
+            + audit["test_items"][:6]
+        )
     checked: list[dict[str, Any]] = []
     for clip in items:
         frame_zip = root / "frames" / clip / "images.zip"
@@ -142,10 +186,23 @@ def validate_dataset(kind: str, root: Path, full_check: bool) -> tuple[dict[str,
 
     audit.pop("train_items", None)
     audit.pop("validation_items", None)
-    return {"kind": kind, "root": str(root), "splits": audit, "archives_checked": checked}, errors
+    audit.pop("test_items", None)
+    return {
+        "kind": kind,
+        "root": str(root),
+        "split_files": {
+            "train": str(train_path),
+            "validation": str(val_path),
+            "test": str(test_path) if test_path is not None else None,
+        },
+        "splits": audit,
+        "archives_checked": checked,
+    }, errors
 
 
-def inspect_environment(skip_cuda: bool, skip_version_check: bool) -> tuple[dict[str, Any], list[str]]:
+def inspect_environment(
+    skip_cuda: bool, skip_version_check: bool, min_vram_gib: float = 14.0
+) -> tuple[dict[str, Any], list[str]]:
     errors: list[str] = []
     missing = [name for name in REQUIRED_MODULES if importlib.util.find_spec(name) is None]
     if missing:
@@ -177,8 +234,11 @@ def inspect_environment(skip_cuda: bool, skip_version_check: bool) -> tuple[dict
         "memory_gib": memory_gib,
         "count": torch.cuda.device_count(),
     }
-    if memory_gib < 14.0:
-        errors.append(f"GPU has only {memory_gib:.2f} GiB; this profile expects at least 14 GiB")
+    if memory_gib < min_vram_gib:
+        errors.append(
+            f"GPU has only {memory_gib:.2f} GiB; this profile expects at least "
+            f"{min_vram_gib:.2f} GiB"
+        )
     return info, errors
 
 
@@ -189,6 +249,10 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--full-check", action="store_true")
+    parser.add_argument("--train-split")
+    parser.add_argument("--validation-split")
+    parser.add_argument("--test-split")
+    parser.add_argument("--min-vram-gib", type=float, default=14.0)
     parser.add_argument("--skip-cuda", action="store_true", help="CI only")
     parser.add_argument("--skip-version-check", action="store_true", help="CI only")
     args = parser.parse_args()
@@ -205,9 +269,16 @@ def main() -> None:
         errors.append(f"checkpoint not found: {checkpoint}")
 
     environment, environment_errors = inspect_environment(
-        args.skip_cuda, args.skip_version_check
+        args.skip_cuda, args.skip_version_check, args.min_vram_gib
     )
-    dataset, dataset_errors = validate_dataset(args.dataset_kind, data_root, args.full_check)
+    dataset, dataset_errors = validate_dataset(
+        args.dataset_kind,
+        data_root,
+        args.full_check,
+        train_split=args.train_split,
+        validation_split=args.validation_split,
+        test_split=args.test_split,
+    )
     errors.extend(environment_errors)
     errors.extend(dataset_errors)
 

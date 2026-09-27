@@ -1,5 +1,10 @@
 # VideoMAE-B training on a university T4
 
+For native Windows training on an 8 GB RTX 4060 Ti with a deterministic,
+source-disjoint DADA-2000 half split, use
+[WINDOWS_HALF_TRAINING.md](WINDOWS_HALF_TRAINING.md). The Windows profile uses
+VideoMAE-S and keeps a separate held-out test split.
+
 This bundle fine-tunes the selected Simple-TAD DAPT VideoMAE-B checkpoint on
 an **external** traffic-anomaly dataset. The recommended continuation is
 DoTA checkpoint -> DADA-2000. The provided WIUT videos remain a locked blind
