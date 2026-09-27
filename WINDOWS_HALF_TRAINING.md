@@ -105,6 +105,18 @@ error. Gradient checkpointing stays enabled unless explicitly disabled with
 Select the checkpoint by validation AUROC only. Do not inspect the held-out test
 predictions while changing the model.
 
+## Deadline run (about 2.5--4 hours on RTX 4060 Ti 8 GB)
+
+This preset runs one frozen-stage epoch and five full fine-tuning epochs with
+8,000 training samples per epoch. It validates after every epoch, selects the
+stage-2 checkpoint by validation AUROC, and writes `metrics_summary.json` with
+stage-1, best-stage-2, last-stage-2, and delta metrics. It never reads the test
+split.
+
+```powershell
+.\scripts\windows\train_videomae_s_half.ps1 -DataRoot C:\datasets\DADA2000 -Deadline -BatchSize 1 -NumWorkers 4
+```
+
 ## One-shot final test
 
 After every choice is frozen:

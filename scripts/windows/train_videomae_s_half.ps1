@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$DataRoot,
     [switch]$Smoke,
+    [switch]$Deadline,
     [switch]$FullArchiveCheck,
     [ValidateSet(1, 2)]
     [int]$BatchSize = 1,
@@ -12,6 +13,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if ($Smoke -and $Deadline) { throw "Smoke and Deadline modes cannot be used together." }
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $DataRoot = (Resolve-Path $DataRoot).Path
 $EffectiveBatchSize = 16
@@ -24,6 +26,8 @@ $AllocatorTag = if ($ConservativeAllocator) { "alloc-safe" } else { "alloc-fast"
 $ProfileTag = "b$($BatchSize)_u$($UpdateFreq)_w$($NumWorkers)_$($CheckpointTag)_$($AllocatorTag)"
 $RunTag = if ($Smoke) {
     "smoke_$($ProfileTag)_$((Get-Date).ToString('yyyyMMdd-HHmmss'))"
+} elseif ($Deadline) {
+    "deadline_$ProfileTag"
 } else {
     "train_$ProfileTag"
 }
@@ -56,9 +60,9 @@ if ($FullArchiveCheck) { $preflightArgs += "--full-check" }
 & $Python @preflightArgs
 if ($LASTEXITCODE -ne 0) { throw "Preflight failed; training was not started." }
 
-$samples = if ($Smoke) { 128 } else { 12000 }
-$stage1Epochs = if ($Smoke) { 1 } else { 2 }
-$stage2Epochs = if ($Smoke) { 1 } else { 12 }
+$samples = if ($Smoke) { 128 } elseif ($Deadline) { 8000 } else { 12000 }
+$stage1Epochs = if ($Smoke -or $Deadline) { 1 } else { 2 }
+$stage2Epochs = if ($Smoke) { 1 } elseif ($Deadline) { 5 } else { 12 }
 
 function Invoke-Stage {
     param(
@@ -136,11 +140,13 @@ $lastStage1 = Join-Path $stage1 "checkpoint-last.pth"
 $stage2Init = if (Test-Path $bestStage1) { $bestStage1 } else { $lastStage1 }
 if (-not (Test-Path $stage2Init)) { throw "Stage 1 produced no checkpoint." }
 
-$stage2 = Invoke-Stage "stage2_full" $stage2Init $stage2Epochs $(if ($Smoke) { 0 } else { 2 }) ""
+$stage2Warmup = if ($Smoke) { 0 } elseif ($Deadline) { 1 } else { 2 }
+$stage2 = Invoke-Stage "stage2_full" $stage2Init $stage2Epochs $stage2Warmup ""
 $Stopwatch.Stop()
 $Benchmark = [ordered]@{
     profile = $ProfileTag
     smoke = [bool]$Smoke
+    deadline = [bool]$Deadline
     batch_size = $BatchSize
     update_freq = $UpdateFreq
     effective_batch_size = $EffectiveBatchSize
@@ -159,6 +165,48 @@ $Benchmark | ConvertTo-Json | Set-Content -Path $BenchmarkPath -Encoding UTF8
 $bestStage2 = Join-Path $stage2 "checkpoint-bestauroc.pth"
 $lastStage2 = Join-Path $stage2 "checkpoint-last.pth"
 $preferredStage2 = if (Test-Path $bestStage2) { $bestStage2 } else { $lastStage2 }
+
+if ($Deadline) {
+    $stage1Log = Join-Path $stage1 "log.txt"
+    $stage2Log = Join-Path $stage2 "log.txt"
+    if ((Test-Path $stage1Log) -and (Test-Path $stage2Log)) {
+        $stage1Records = @(Get-Content $stage1Log | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json })
+        $stage2Records = @(Get-Content $stage2Log | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json })
+        $reference = $stage1Records | Select-Object -Last 1
+        $best = $stage2Records | Sort-Object -Property @{ Expression = { [double]$_.val_auroc }; Descending = $true } | Select-Object -First 1
+        $last = $stage2Records | Select-Object -Last 1
+        if (($null -ne $reference) -and ($null -ne $best) -and ($null -ne $last)) {
+            function Select-ValidationMetrics($record) {
+                return [ordered]@{
+                    epoch = [int]$record.epoch
+                    auroc = [math]::Round([double]$record.val_auroc, 6)
+                    average_precision = [math]::Round([double]$record.val_ap, 6)
+                    accuracy = [math]::Round([double]$record.val_metr_acc, 6)
+                    precision = [math]::Round([double]$record.val_precision, 6)
+                    recall = [math]::Round([double]$record.val_recall, 6)
+                    f1 = [math]::Round([double]$record.val_f1, 6)
+                }
+            }
+            $summary = [ordered]@{
+                selection_policy = "Best stage-2 checkpoint selected by validation AUROC only"
+                test_split_accessed = $false
+                stage1_reference = Select-ValidationMetrics $reference
+                best_stage2 = Select-ValidationMetrics $best
+                last_stage2 = Select-ValidationMetrics $last
+                best_vs_stage1_delta = [ordered]@{
+                    auroc = [math]::Round(([double]$best.val_auroc - [double]$reference.val_auroc), 6)
+                    average_precision = [math]::Round(([double]$best.val_ap - [double]$reference.val_ap), 6)
+                    accuracy = [math]::Round(([double]$best.val_metr_acc - [double]$reference.val_metr_acc), 6)
+                    f1 = [math]::Round(([double]$best.val_f1 - [double]$reference.val_f1), 6)
+                }
+                selected_checkpoint = $preferredStage2
+            }
+            $summaryPath = Join-Path $OutputRoot "metrics_summary.json"
+            $summary | ConvertTo-Json -Depth 6 | Set-Content -Path $summaryPath -Encoding UTF8
+            Write-Host "Metrics summary: $summaryPath"
+        }
+    }
+}
 Write-Host "Elapsed: $($Stopwatch.Elapsed)"
 Write-Host "Benchmark: $BenchmarkPath"
 Write-Host "Training complete. Preferred checkpoint: $preferredStage2"
