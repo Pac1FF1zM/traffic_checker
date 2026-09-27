@@ -43,10 +43,20 @@ def demo_config() -> dict:
     # causal calibration and require temporal/TTC agreement for a high alarm.
     config["demo_fixed_camera_mode"] = True
     config["fixed_camera_warmup_samples"] = 4
-    config["fixed_camera_temporal_margin"] = 0.10
+    config["fixed_camera_temporal_margin"] = 0.15
     config["fixed_camera_temporal_scale"] = 0.35
     config["temporal_accident_threshold"] = 0.65
+    config["temporal_accident_min_sec"] = 1.0
     config["enable_near_miss_heuristic"] = False
+    config["tracker_min_iou"] = 0.10
+    config["tracker_max_distance"] = 0.045
+    config["fixed_camera_ttc_horizon"] = 1.75
+    config["fixed_camera_ttc_miss"] = 0.04
+    config["fixed_camera_ttc_min_history"] = 6
+    config["fixed_camera_ttc_min_age"] = 0.6
+    config["fixed_camera_ttc_max_speed"] = 0.45
+    config["fixed_camera_ttc_scale"] = 1.0
+    config["fixed_camera_ttc_proximity_scale"] = 0.018
     return config
 
 

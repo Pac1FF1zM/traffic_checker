@@ -39,6 +39,22 @@ def test_ttc_risk_separates_approaching_and_parallel_tracks() -> None:
     assert collision_risk([approaching_a, parallel_b]) == 0.0
 
 
+def test_strict_ttc_rejects_a_tracker_identity_jump() -> None:
+    unstable = make_track(
+        1,
+        [(0.0, 0.20, 0.50), (0.2, 0.22, 0.50), (0.4, 0.24, 0.50),
+         (0.6, 0.26, 0.50), (0.8, 0.28, 0.50), (1.0, 0.55, 0.50)],
+    )
+    other = make_track(
+        2,
+        [(0.0, 0.80, 0.50), (0.2, 0.78, 0.50), (0.4, 0.76, 0.50),
+         (0.6, 0.74, 0.50), (0.8, 0.72, 0.50), (1.0, 0.70, 0.50)],
+    )
+    assert collision_risk(
+        [unstable, other], min_history=6, min_track_age=0.6, max_instant_speed=0.45
+    ) == 0.0
+
+
 def test_temporal_preprocessing_and_fusion() -> None:
     import numpy as np
 
@@ -54,5 +70,6 @@ if __name__ == "__main__":
     test_geometry()
     test_interval_postprocessing()
     test_ttc_risk_separates_approaching_and_parallel_tracks()
+    test_strict_ttc_rejects_a_tracker_identity_jump()
     test_temporal_preprocessing_and_fusion()
     print("baseline unit tests: OK")

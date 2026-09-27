@@ -146,9 +146,34 @@ def _sample_velocity(history: list[tuple[float, float, float, Any]], index: int,
     return ((current[1] - previous[1]) / dt, (current[2] - previous[2]) / dt)
 
 
-def collision_risk(tracks: Iterable[Track], horizon: float = 5.0) -> float:
+def collision_risk(
+    tracks: Iterable[Track],
+    horizon: float = 5.0,
+    *,
+    miss_threshold: float = 0.12,
+    min_history: int = 2,
+    min_track_age: float = 0.0,
+    max_instant_speed: float | None = None,
+    ttc_scale: float = 3.0,
+    proximity_scale: float = 0.045,
+) -> float:
     """Causal TTC score in [0, 1] from the latest state of active tracks."""
-    tracks = [t for t in tracks if t.cls_id in COCO_ROAD_USERS and len(t.history) >= 2]
+    stable_tracks: list[Track] = []
+    for track in tracks:
+        if track.cls_id not in COCO_ROAD_USERS or len(track.history) < max(2, min_history):
+            continue
+        if track.history[-1][0] - track.history[0][0] < min_track_age:
+            continue
+        if max_instant_speed is not None:
+            latest, previous = track.history[-1], track.history[-2]
+            dt = latest[0] - previous[0]
+            if dt <= 1e-6:
+                continue
+            instant_speed = math.hypot(latest[1] - previous[1], latest[2] - previous[2]) / dt
+            if instant_speed > max_instant_speed:
+                continue
+        stable_tracks.append(track)
+    tracks = stable_tracks
     best = 0.0
     for i, left in enumerate(tracks):
         lx, ly = left.history[-1][1:3]
@@ -165,10 +190,10 @@ def collision_risk(tracks: Iterable[Track], horizon: float = 5.0) -> float:
             if not 0.0 < ttc <= horizon:
                 continue
             miss = math.hypot(px + vx * ttc, py + vy * ttc)
-            if miss > 0.12:
+            if miss > miss_threshold:
                 continue
-            approach = math.exp(-ttc / 3.0)
-            proximity = math.exp(-miss / 0.045)
+            approach = math.exp(-ttc / max(ttc_scale, 1e-6))
+            proximity = math.exp(-miss / max(proximity_scale, 1e-6))
             best = max(best, approach * proximity)
     return float(min(1.0, max(0.0, best)))
 
@@ -220,7 +245,11 @@ class EventAnalyzer:
         self.width = width
         self.height = height
         self.sample_period = stride / max(fps, 1e-6)
-        self.tracker = CentroidTracker(max_missed=max_missed)
+        self.tracker = CentroidTracker(
+            max_missed=max_missed,
+            min_iou=float(config.get("tracker_min_iou", 0.05)),
+            max_distance=float(config.get("tracker_max_distance", 0.12)),
+        )
         self.states: list[FrameState] = []
         self.near_miss_times: list[float] = []
         self.accident_times: list[float] = []

@@ -15,6 +15,6 @@ def test_large_change_after_normal_background_is_retained() -> None:
 
 
 def test_one_source_cannot_create_a_high_fixed_camera_alarm() -> None:
-    assert fuse_fixed_camera_risk(1.0, 0.0) == 0.35
-    assert fuse_fixed_camera_risk(0.0, 1.0) == 0.30
+    assert fuse_fixed_camera_risk(1.0, 0.0) == 0.25
+    assert fuse_fixed_camera_risk(0.0, 1.0) == 0.25
     assert fuse_fixed_camera_risk(1.0, 1.0) == 1.0

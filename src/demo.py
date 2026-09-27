@@ -64,7 +64,7 @@ def fuse_fixed_camera_risk(ttc_score: float, temporal_change: float) -> float:
 
     ttc = min(1.0, max(0.0, float(ttc_score)))
     temporal = min(1.0, max(0.0, float(temporal_change)))
-    return float(max(0.35 * ttc, 0.30 * temporal, ttc * temporal))
+    return float(max(0.25 * ttc, 0.25 * temporal, ttc * temporal))
 
 
 def analyze_video_detailed(video_path: str | Path, config: dict[str, Any]) -> dict[str, Any]:
@@ -124,7 +124,20 @@ def analyze_video_detailed(video_path: str | Path, config: dict[str, Any]) -> di
                 detections = detector(frame)
                 analyzer.update(frame, detections, t_sec)
                 active_tracks = [track for track in analyzer.tracker.tracks.values() if track.missed == 0]
-                last_ttc_score = collision_risk(active_tracks)
+                last_ttc_score = (
+                    collision_risk(
+                        active_tracks,
+                        horizon=float(config.get("fixed_camera_ttc_horizon", 1.75)),
+                        miss_threshold=float(config.get("fixed_camera_ttc_miss", 0.04)),
+                        min_history=int(config.get("fixed_camera_ttc_min_history", 6)),
+                        min_track_age=float(config.get("fixed_camera_ttc_min_age", 0.6)),
+                        max_instant_speed=float(config.get("fixed_camera_ttc_max_speed", 0.45)),
+                        ttc_scale=float(config.get("fixed_camera_ttc_scale", 1.0)),
+                        proximity_scale=float(config.get("fixed_camera_ttc_proximity_scale", 0.018)),
+                    )
+                    if fixed_camera_mode
+                    else collision_risk(active_tracks)
+                )
 
             raw_risk = (
                 fuse_fixed_camera_risk(last_ttc_score, last_temporal_score)
@@ -158,6 +171,9 @@ def analyze_video_detailed(video_path: str | Path, config: dict[str, Any]) -> di
     ]
     max_point = max(timeline, key=lambda point: point["risk"], default={"risk": 0.0, "time": 0.0})
     average_risk = sum(point["risk"] for point in timeline) / max(len(timeline), 1)
+    max_ttc_risk = max((point["ttc_risk"] for point in timeline), default=0.0)
+    max_visual_change = max((point["visual_risk"] for point in timeline), default=0.0)
+    max_raw_visual_score = max((point["raw_visual_score"] for point in timeline), default=0.0)
 
     return {
         "video": {
@@ -172,6 +188,9 @@ def analyze_video_detailed(video_path: str | Path, config: dict[str, Any]) -> di
             "max_risk": round(float(max_point["risk"]), 6),
             "max_risk_time": round(float(max_point["time"]), 3),
             "average_risk": round(average_risk, 6),
+            "max_ttc_risk": round(max_ttc_risk, 6),
+            "max_visual_change": round(max_visual_change, 6),
+            "max_raw_visual_score": round(max_raw_visual_score, 6),
             "event_count": len(events),
             "processing_seconds": round(elapsed, 3),
             "realtime_factor": round(elapsed / max(duration, 1e-6), 3),

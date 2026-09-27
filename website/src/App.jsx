@@ -94,7 +94,7 @@ function DemoSection() {
             <div className="analysis-header"><div><span>MAXIMUM RISK</span><strong>{pct(result.summary.max_risk)}</strong></div><div><span>AT</span><strong>{seconds(result.summary.max_risk_time)}</strong></div><div><span>EVENTS</span><strong>{result.summary.event_count}</strong></div></div>
             <RiskChart timeline={result.timeline} duration={result.video.duration} />
             <div className="event-list">{result.events.length ? result.events.map((event, index) => <div className="event-row" key={`${event.label}-${index}`}><i /><strong>{eventNames[event.label] || event.label}</strong><span>{seconds(event.start)} — {seconds(event.end)}</span></div>) : <div className="no-events">No thresholded traffic events detected.</div>}</div>
-            <div className="runtime-row"><span>{result.video.frames.toLocaleString()} frames</span><span>{seconds(result.summary.processing_seconds)} processing</span><span>{result.summary.realtime_factor.toFixed(2)}× video duration</span></div>
+            <div className="runtime-row"><span>{result.video.frames.toLocaleString()} frames</span><span>{seconds(result.summary.processing_seconds)} processing</span><span>{result.summary.realtime_factor.toFixed(2)}× video duration</span>{result.summary.max_ttc_risk !== undefined && <span>max TTC {pct(result.summary.max_ttc_risk)}</span>}{result.summary.max_visual_change !== undefined && <span>max visual Δ {pct(result.summary.max_visual_change)}</span>}</div>
           </>}
         </div>
       </div>
