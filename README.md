@@ -34,8 +34,9 @@ python run_submission.py --videos /data/test --out predictions.json --team Team4
 python evaluate.py --pred predictions.json --validate-only
 ```
 
-The submitted package should contain the trained VideoMAE-S checkpoint at
-`weights/simpletad_ft-dota_dapt-vm1-s_auroc.pth`. If that file is absent,
+The repository includes the trained VideoMAE-S checkpoint at
+`weights/simpletad_ft-dota_dapt-vm1-s_auroc.pth` (SHA-256
+`b54a2507b39a6bb4d4536f315939e6491c64634a7009b81514cdf86e194eb34a`). If that file is absent,
 `weights/download.sh` installs the public Simple-TAD DoTA checkpoint as a
 runnable fallback; the fallback is not the model behind the reported DADA
 fine-tuning results.

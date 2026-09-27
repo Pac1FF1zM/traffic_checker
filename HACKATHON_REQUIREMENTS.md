@@ -154,7 +154,7 @@ site must remain online through judging.
 | Exact 14 labels and valid JSON | Pass | `solution.py`; `evaluate.py --validate-only` |
 | Reproducible training and leakage audit | Pass | Windows and T4 scripts; split hashes; tests |
 | External-data/licence disclosure | Pass with caveat | README states DADA has no clear standard licence file |
-| Offline weights <= 5 GB | **Release blocker** | Put exported final VideoMAE-S and YOLO weights in submitted package/commit; test `weights/download.sh` |
+| Offline weights <= 5 GB | **Ready** | Final VideoMAE-S is committed (87,575,664 bytes, strict-load verified); YOLO is prepared by `weights/download.sh` before offline packaging |
 | `predictions_samples.json` | **Release blocker** | Generate on all four organizer samples and validate |
 | Camera geometry | **Release blocker** | Commit the same-camera `configs/scene.json` after calibration |
 | Public website | Partial | Frontend and local live demo exist; public URL and persistent GPU backend must be verified |
