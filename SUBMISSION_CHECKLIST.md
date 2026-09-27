@@ -42,7 +42,7 @@ python .\run_submission.py `
   --team Team404
 
 python .\evaluate.py --pred .\predictions_samples.json --validate-only
-git add .\predictions_samples.json
+git add -f .\predictions_samples.json
 ```
 
 Confirm all four filenames are present, even when an event list is empty. Do
@@ -84,6 +84,7 @@ git add README.md HACKATHON_REQUIREMENTS.md SUBMISSION_CHECKLIST.md `
 git commit -m "Prepare WIUT elimination submission"
 git tag -a wiut-elimination-v1 -m "WIUT elimination submission"
 git push origin codex/website
+git push origin HEAD:main
 git push origin wiut-elimination-v1
 git rev-parse HEAD
 ```
