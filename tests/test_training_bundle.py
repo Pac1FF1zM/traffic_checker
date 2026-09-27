@@ -118,7 +118,12 @@ def test_split_generator_is_disjoint_and_deterministic() -> None:
         assert not generated_train & generated_val
         assert not generated_train & generated_test
         assert not generated_val & generated_test
-        assert generated_test == set(test)
+        assert generated_test.issubset(set(test))
+        assert generated_test
+        assert first["counts"]["official_validation"] == len(test)
+        assert first["counts"]["selected_dataset_clips"] == len(
+            set(read_split(split_root / "selected_dataset_clips.txt"))
+        )
 
 
 def test_exporter_unwraps_and_removes_ddp_prefix() -> None:

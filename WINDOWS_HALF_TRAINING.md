@@ -11,8 +11,9 @@ The split generator preserves the official DADA separation:
 1. The official training list is the only source for training and tuning.
 2. A deterministic, stratified 50% pool is selected from official training.
 3. Ten percent of that selected pool becomes validation; the rest is training.
-4. The official validation list is renamed as the held-out test and is never
-   loaded by the training command.
+4. A deterministic, stratified 20% subset of official validation becomes the
+   held-out test and is never loaded by the training command. The rest is not
+   used, which keeps the selected frame data within the local disk budget.
 5. Stratification uses accident category, accident presence, and day/night.
 6. Every split is source-video-disjoint and recorded with SHA-256 hashes.
 
@@ -42,12 +43,14 @@ limited.
 ## Generate immutable splits
 
 ```powershell
-python scripts\prepare_dada_half_splits.py --data-root C:\datasets\DADA2000 --fraction 0.5 --validation-fraction 0.1 --seed 42
+python scripts\prepare_dada_half_splits.py --data-root C:\datasets\DADA2000 --fraction 0.5 --validation-fraction 0.1 --test-fraction 0.2 --seed 42
 ```
 
 The command preserves the originals as `official_training.txt` and
-`official_validation.txt`, writes `half_training.txt`, `validation.txt`, and
-`test.txt`, and creates `split_manifest.json`.
+`official_validation.txt`, writes `half_training.txt`, `validation.txt`,
+`test.txt`, and `selected_dataset_clips.txt`, and creates
+`split_manifest.json`. Only clips in `selected_dataset_clips.txt` are needed
+locally.
 
 ## Smoke test
 

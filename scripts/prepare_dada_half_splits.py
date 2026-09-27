@@ -74,12 +74,15 @@ def main() -> None:
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--fraction", type=float, default=0.5)
     parser.add_argument("--validation-fraction", type=float, default=0.1)
+    parser.add_argument("--test-fraction", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     if not 0 < args.fraction <= 1:
         raise ValueError("--fraction must be in (0, 1]")
     if not 0 < args.validation_fraction < 0.5:
         raise ValueError("--validation-fraction must be in (0, 0.5)")
+    if not 0 < args.test_fraction <= 1:
+        raise ValueError("--test-fraction must be in (0, 1]")
 
     root = args.data_root.expanduser().resolve()
     split_dir = root / "DADA2K_my_split"
@@ -131,7 +134,17 @@ def main() -> None:
     train.sort()
     validation.sort()
     half_pool.sort()
-    test = sorted(source_test)
+    grouped_test: dict[tuple[int, int, int], list[str]] = defaultdict(list)
+    for item in source_test:
+        grouped_test[strata[item]].append(item)
+    test: list[str] = []
+    for key in sorted(grouped_test):
+        items = sorted(
+            grouped_test[key], key=lambda item: stable_order(item, args.seed + 1)
+        )
+        selected_count = max(1, round(len(items) * args.test_fraction))
+        test.extend(items[: min(len(items), selected_count)])
+    test.sort()
     if set(train) & set(validation) or set(train) & set(test) or set(validation) & set(test):
         raise RuntimeError("generated splits are not source-disjoint")
 
@@ -139,26 +152,33 @@ def main() -> None:
     write_lines(split_dir / "validation.txt", validation)
     write_lines(split_dir / "test.txt", test)
     write_lines(split_dir / "half_pool.txt", half_pool)
+    selected_dataset = sorted(set(half_pool).union(test))
+    write_lines(split_dir / "selected_dataset_clips.txt", selected_dataset)
 
     summary = {
         "seed": args.seed,
         "requested_training_fraction": args.fraction,
         "validation_fraction_within_selected_pool": args.validation_fraction,
+        "test_fraction_within_official_validation": args.test_fraction,
         "policy": (
             "official training only -> deterministic stratified half pool -> train/validation; "
-            "official validation held out unchanged as test"
+            "deterministic stratified subset of official validation held out as test"
         ),
         "stratification": ["accident category", "accident present", "day/night"],
         "counts": {
             "official_train": len(source_train),
+            "official_validation": len(source_test),
             "selected_half_pool": len(half_pool),
+            "selected_dataset_clips": len(selected_dataset),
             "train": len(train),
             "validation": len(validation),
             "test": len(test),
         },
         "sha256": {
             "official_train": digest(source_train),
+            "official_validation": digest(source_test),
             "selected_half_pool": digest(half_pool),
+            "selected_dataset_clips": digest(selected_dataset),
             "train": digest(train),
             "validation": digest(validation),
             "test": digest(test),
