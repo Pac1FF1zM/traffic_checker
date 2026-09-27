@@ -1,167 +1,216 @@
-# WIUT traffic-event baseline
+# Team404 — fixed-camera traffic event detection
 
-A conservative, runnable baseline for the WIUT Hackathon 2026 Computer Vision
-track. The organizers' `run_submission.py` and `evaluate.py` are kept unchanged.
+Submission repository for the WIUT Hackathon 2026 Computer Vision elimination
+task: **Toyota Traffic Event Detection and Accident Anticipation from a Fixed
+Road Camera**.
 
-The baseline combines:
+The system implements both official interfaces:
 
-- YOLO11n COCO road-user detection;
-- deterministic IoU/centroid tracking;
-- temporal rules for stopped vehicles, congestion and TTC near-misses;
-- optional Simple-TAD DAPT VideoMAE-S or VideoMAE-B risk recognition over the
-  latest 16 frames;
-- optional camera-calibrated rules for wrong-way driving, jaywalking,
-  failure-to-yield, red-light running and solid-line crossing;
-- a causal `RiskEstimator` fusing track TTC and temporal-model risk.
+- **Part A (mandatory):** temporal segments `[start_sec, end_sec, label]` for
+  the 14 official traffic-event classes.
+- **Part B (bonus):** a causal `RiskEstimator` that receives frames one by one
+  and returns `P(accident starts within 5 seconds)` in `[0, 1]`.
 
-This is a starting point, not a trained final model. `illegal_u_turn`,
-`illegal_turn`, `stop_line`, `road_obstacle` and `fire_smoke` deliberately produce
-no events yet. The accident contact heuristic is disabled by default because box
-overlap is too noisy on a distant CCTV view.
+`run_submission.py` and `evaluate.py` are the unchanged organizer files. The
+official hidden set uses the same fixed camera and angle as the four unlabeled
+sample videos. See [HACKATHON_REQUIREMENTS.md](HACKATHON_REQUIREMENTS.md) for the
+requirements audit and [SUBMISSION_CHECKLIST.md](SUBMISSION_CHECKLIST.md) for
+the release checklist.
 
-## Setup
+## Clean-machine run
 
-Python 3.10+:
+Python 3.10+ and an NVIDIA GPU are recommended. Evaluation is offline; run the
+weight preparation once while internet access is available.
 
 ```bash
 python -m venv .venv
-# Windows
-.venv\Scripts\activate
-pip install -r requirements.txt
-python scripts/download_weights.py
+# Linux: source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 git submodule update --init --recursive
-python scripts/download_temporal_weights.py
+bash weights/download.sh
+
+python run_submission.py --videos /data/test --out predictions.json --team Team404
+python evaluate.py --pred predictions.json --validate-only
 ```
 
-The temporal download is optional. If its source or checkpoint is absent, the
-code emits a warning and automatically uses the YOLO+TTC baseline. Set
-`temporal_required: true` after installation to make a missing/broken temporal
-backend a hard error before submission.
+The submitted package should contain the trained VideoMAE-S checkpoint at
+`weights/simpletad_ft-dota_dapt-vm1-s_auroc.pth`. If that file is absent,
+`weights/download.sh` installs the public Simple-TAD DoTA checkpoint as a
+runnable fallback; the fallback is not the model behind the reported DADA
+fine-tuning results.
 
-For the selected VideoMAE-B continuation run on a university T4, use the
-reproducible Linux bundle in [LAB_TRAINING.md](LAB_TRAINING.md). It includes a
-leakage preflight, DADA/DoTA configs, smoke profile, two-stage FP16 training,
-external validation, and strict inference-checkpoint export.
+The complete Part A + Part B wall-clock budget is at most three times each
+video's duration. The code samples detection frames and caches model instances
+to retain margin on the organizer's T4-class 16 GB GPU.
 
-Ultralytics uses AGPL-3.0 unless covered by an enterprise licence. Check that this
-is acceptable for your submission. If not, replace `YoloDetector` with an
-Apache-2.0 detector such as an RT-DETR implementation whose code and weights have
-compatible terms.
+## Architecture
 
-Simple-TAD source and weights use CC BY-NC 4.0. Verify that the hackathon and
-the intended use qualify before redistributing a submission bundle. The weights
-are intentionally excluded from Git.
+```text
+fixed MP4
+  ├─ YOLO11n road-user detector ─ centroid/IoU tracker ─ geometry rules
+  │                                                └─ causal TTC risk
+  └─ causal 16-frame VideoMAE-S ─ anomaly probability ─┬─ event segments
+                                                       └─ 5-second risk curve
+```
 
-## Camera calibration
+Learned components:
 
-Copy `configs/scene.example.json` to `configs/scene.json`. Coordinates are
-normalised to `[0, 1]`, so the same configuration works at any resolution.
+- YOLO11n COCO road-user detector;
+- Simple-TAD VideoMAE-S, initialized from its public DoTA checkpoint and
+  continued on a leakage-safe DADA-2000 split.
 
-- `road_polygon`: road surface, used for `jaywalking`.
-- `crosswalk_polygon`: marked crossing, excluded from `jaywalking` and used for
-  `failure_to_yield`.
-- `traffic_light_roi`: rectangle `[x1, y1, x2, y2]` containing only the relevant
-  signal head.
-- `stop_line`: two endpoints; a tracked vehicle crossing it while the ROI is red
-  creates `red_light`.
-- `solid_lines`: list of line segments.
-- `lanes`: polygons with an allowed image-plane direction vector, for example:
+Rule-based components:
+
+- deterministic association and track histories;
+- time-to-collision risk;
+- stopped vehicle, congestion, wrong-way, pedestrian/crosswalk, red-light and
+  line-crossing rules when camera geometry is configured;
+- temporal segment merging and minimum-duration filtering.
+
+The Part B implementation is causal: `RiskEstimator.step(frame, t_sec)` uses
+only the current frame, retained past frames and track state. It never opens the
+video and never reuses Part A output.
+
+## Official output contract
+
+`solution.py` exposes `CLASSES`, `detect_events(video_path)` and
+`RiskEstimator.reset/step`. The exact class ids are:
+
+```text
+accident, near_miss, red_light, wrong_way, illegal_u_turn,
+stopped_vehicle, jaywalking, failure_to_yield, illegal_turn,
+solid_line_crossing, stop_line, congestion, road_obstacle, fire_smoke
+```
+
+The harness writes one entry per test file:
 
 ```json
 {
-  "lanes": [
-    {
-      "polygon": [[0.10, 0.95], [0.42, 0.95], [0.52, 0.35], [0.43, 0.35]],
-      "direction": [0.0, -1.0]
+  "team": "Team404",
+  "videos": {
+    "test_001.mp4": {
+      "events": [[12.4, 18.9, "accident"]],
+      "risk": [[0.0, 0.01], [0.04, 0.02]]
     }
-  ]
+  }
 }
 ```
 
-Set `WIUT_SCENE_CONFIG` to use a different JSON file. Empty geometry fields disable
-the corresponding scene-specific rules rather than guessing.
+Same-class segments never overlap. Risk timestamps are non-decreasing and all
+scores are clipped to `[0, 1]`.
 
-## Run
+## Training data, leakage controls and licences
 
-Part A only, useful while calibrating geometry:
+Only public external data was used for training. The four WIUT sample videos
+were not used for model selection, threshold tuning or the reported DADA test.
 
-```bash
-python run_submission.py --videos samples --out predictions_samples.json --team TEAM --no-risk
-python evaluate.py --pred predictions_samples.json --validate-only
-```
+| Asset | Use | Licence / terms |
+|---|---|---|
+| DADA-2000 | VideoMAE-S continuation and held-out evaluation | The official repository publishes the benchmark for research but does not provide a clear standard licence file; do not redistribute the videos and verify permission for any use beyond this academic hackathon. |
+| Simple-TAD source and public checkpoint | Architecture and initialization | Majority CC BY-NC 4.0; separately identified dependencies retain Apache-2.0, MIT or BSD terms. |
+| Ultralytics YOLO11n code and weights | Road-user detection | AGPL-3.0 unless covered by an Ultralytics Enterprise licence. This repository is public; downstream proprietary use requires a separate licence review. |
+| COCO | Detector pre-training through YOLO11n | COCO image annotations are CC BY 4.0; individual images retain their source terms. |
 
-Full Part A + causal Part B:
+The deterministic seed is `42`. The DADA preparation script creates disjoint
+source-video splits and records hashes in `split_manifest.json`:
 
-```bash
-python run_submission.py --videos samples --out predictions_samples.json --team TEAM
-```
+- train: 419 clips;
+- validation: 74 clips;
+- held-out test: 227 clips;
+- pairwise train/validation/test overlap: 0.
 
-### Leakage-free comparison on unlabeled videos
-
-The locked protocol in `experiments/wiut_blind_protocol.json` forbids training,
-calibration, threshold selection and manual frame review on the WIUT sample
-videos. It compares raw VideoMAE-S/B scores over deterministic windows and uses
-X3D-S only as an efficiency/action diagnostic because the public checkpoint has
-no accident head:
-
-```bash
-pip install -r requirements-comparison.txt
-python scripts/run_blind_model_comparison.py \
-  --videos data/wiut_blind/*.mp4 \
-  --out tmp/wiut_blind_results.json
-```
-
-This is a sanity/runtime test, not an accuracy leaderboard: the supplied videos
-have no ground-truth labels, so choosing a winner from their predictions would
-be methodologically invalid.
-
-With team-created labels:
+Run the leakage and reproducibility checks with:
 
 ```bash
-python evaluate.py --pred predictions_samples.json --gt my_labels.json --per-video
+python tests/test_training_bundle.py
 ```
+
+See [WINDOWS_HALF_TRAINING.md](WINDOWS_HALF_TRAINING.md) for the exact Windows
+training commands, hyperparameters and one-shot held-out evaluation.
+
+## Verified external-domain result
+
+Checkpoint selection used validation AUROC only. The selected checkpoint was
+then evaluated once on 227 untouched DADA-2000 dashcam clips (52,255 windows):
+
+| Metric | Result |
+|---|---:|
+| AUROC | 84.55% |
+| Average precision | 79.46% |
+| Accuracy | 79.33% |
+| Precision at 0.5 | 84.24% |
+| Recall at 0.5 | 52.86% |
+| F1 at 0.5 | 64.96% |
+
+These are **not hidden-WIUT scores** and are **not fixed-camera accuracy
+claims**. DADA-2000 is dashcam footage, so fixed-camera sample performance must
+be assessed separately with team annotations and the organizer's exact metric.
+
+## Camera calibration
+
+Copy `configs/scene.example.json` to `configs/scene.json` and fill normalized
+camera geometry: road, crosswalk, intersection, signal ROI, stop line, solid
+lines and lane directions. Empty fields disable the corresponding rule rather
+than guessing. Set `WIUT_SCENE_CONFIG` to load another file.
+
+## Local team website and live demo
+
+```powershell
+python -m pip install -r requirements-demo.txt
+Push-Location .\website
+npm.cmd install
+npm.cmd run build
+Pop-Location
+
+$Checkpoint = ".\weights\simpletad_ft-dota_dapt-vm1-s_auroc.pth"
+.\scripts\windows\start_live_demo.ps1 -Checkpoint $Checkpoint
+```
+
+Open `http://127.0.0.1:8000`. The visitor can upload a video up to 300 MB and
+receives event intervals, a causal risk curve and runtime diagnostics. Uploads
+are processed locally and deleted after inference. Deployment instructions are
+in [LIVE_DEMO.md](LIVE_DEMO.md).
 
 ## Tests
 
-The tests do not require video or model inference:
-
 ```bash
 python tests/test_baseline.py
-python -m py_compile solution.py src/*.py run_submission.py evaluate.py
+python tests/test_demo_calibration.py
+python tests/test_training_bundle.py
+python -m py_compile solution.py src/*.py run_submission.py evaluate.py demo_api.py
+python evaluate.py --pred predictions_samples.json --validate-only
 ```
 
-## What to tune first
+## Honest limitations
 
-1. Label every supplied WIUT clip using the official boundary conventions.
-2. Calibrate scene polygons and lines from the fixed camera.
-3. Plot track histories and tune speeds in normalised image units per second.
-4. Disable rules that produce false positives; macro F1 punishes speculative
-   classes.
-5. Train a temporal accident/near-miss classifier using the shortlist in
-   [DATASETS.md](DATASETS.md) and the staged plan in
-   [FINETUNING.md](FINETUNING.md).
-6. Measure runtime with the official runner. Part A and Part B share the
-   `3 x video duration` budget.
+- The temporal model was trained on dashcam data; fixed-camera calibration is
+  a conservative cross-domain adaptation, not a substitute for labelled CCTV
+  training data.
+- Scene-dependent classes require the supplied-camera geometry.
+- `illegal_u_turn`, `illegal_turn`, `stop_line`, `road_obstacle` and
+  `fire_smoke` are not yet emitted by the current rules.
+- Sample-video EDA and `predictions_samples.json` must be generated from the
+  organizer-provided files before tagging the submission commit.
+
+## Team404
+
+- **Murodkulov Nazarbek Jonibekovich** — captain; model training and evaluation.
+- **Davronkulov Abubark Davlatovich** — pipeline integration, testing and deployment.
+- **Ruziyev Firdavs Negmurodovich** — website, visualizations and presentation.
 
 ## Repository layout
 
 ```text
-solution.py                 official interface
-src/baseline.py             detector, event rules and causal risk
-src/temporal.py             causal Simple-TAD adapter and TTC/model fusion
-src/tracking.py             deterministic lightweight tracker
-src/geometry.py             geometry and segment post-processing
-configs/scene.example.json  camera calibration template
-scripts/download_weights.py one-time model download
-scripts/download_temporal_weights.py  Simple-TAD checkpoint download
-scripts/run_blind_model_comparison.py  frozen, causal comparison runner
-experiments/wiut_blind_protocol.json   pre-registered leakage controls
-DATASETS.md                 researched dataset shortlist
-FINETUNING.md               staged fine-tuning plan for a T4 GPU
-LAB_TRAINING.md             copy-to-lab VideoMAE-B training runbook
-configs/training            fixed full, alternate and smoke profiles
-scripts/lab                 setup, preflight, train, evaluate and export tools
-third_party/simple_tad      pinned upstream source (git submodule)
-run_submission.py           organizer file, unchanged
-evaluate.py                 organizer file, unchanged
+solution.py                    official interface implementation
+run_submission.py              organizer harness, unchanged
+evaluate.py                    organizer metric, unchanged
+src/                           detector, tracking, rules and causal temporal model
+configs/                       fixed-camera configuration
+weights/download.sh            one-time online weight preparation
+scripts/windows/               reproducible Windows training/evaluation
+scripts/lab/                   Linux/T4 training and export utilities
+website/                       React public presentation and upload UI
+HACKATHON_REQUIREMENTS.md       official requirements audit
+SUBMISSION_CHECKLIST.md         release and submission checklist
 ```

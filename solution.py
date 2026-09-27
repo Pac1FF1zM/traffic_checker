@@ -1,9 +1,26 @@
-"""WIUT Hackathon baseline implementing the organizers' exact interface."""
+"""Team404 implementation of the organizers' exact WIUT interface."""
 from __future__ import annotations
+
+import random
 
 import numpy as np
 
 from src.baseline import OnlineRiskEstimator, analyze_video, load_config
+
+
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
+try:
+    import torch
+
+    torch.manual_seed(SEED)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(SEED)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+except ImportError:
+    pass
 
 CLASSES: list[str] = [
     "accident",

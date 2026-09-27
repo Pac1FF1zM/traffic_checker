@@ -1,7 +1,26 @@
 # Dataset shortlist for the WIUT fixed-CCTV task
 
-Checked on 2026-09-23. Always re-read the dataset card and terms before downloading,
+Checked on 2026-09-27. Always re-read the dataset card and terms before downloading,
 training, redistributing, or publishing derived annotations.
+
+## Data actually used in the submitted model
+
+- **DADA-2000:** 419 source clips for training, 74 for validation and 227 for
+  a one-shot held-out test. The deterministic split manifest reports zero
+  train/validation/test overlap. The official repository makes the benchmark
+  available for research but does not expose a clear standard licence file;
+  the videos are not redistributed in this repository.
+- **Simple-TAD public DoTA checkpoint:** initialization for VideoMAE-S. The
+  majority of Simple-TAD is CC BY-NC 4.0; its README identifies portions under
+  Apache-2.0, MIT and BSD licences.
+- **COCO through Ultralytics YOLO11n:** road-user detector initialization.
+  Ultralytics code and default weights are AGPL-3.0 unless separately licensed;
+  COCO annotations are CC BY 4.0 and source images retain their own terms.
+
+The WIUT sample videos were not used for the reported DADA checkpoint
+selection or test metrics. Team-created sample annotations are permitted for a
+separate fixed-camera development set and must not be confused with hidden-test
+ground truth.
 
 ## Recommended order
 

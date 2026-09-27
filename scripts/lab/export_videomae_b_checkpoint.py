@@ -1,4 +1,4 @@
-"""Export a training checkpoint into the pure state dict used by inference."""
+"""Export a VideoMAE training checkpoint into the inference state-dict format."""
 from __future__ import annotations
 
 import argparse
@@ -48,6 +48,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument(
+        "--arch",
+        choices=("videomae_small", "videomae_base"),
+        default="videomae_base",
+    )
     args = parser.parse_args()
 
     source = args.checkpoint.expanduser().resolve()
@@ -60,9 +65,13 @@ def main() -> None:
     payload = torch.load(source, map_location="cpu", weights_only=False)
     state = extract_state_dict(payload)
 
-    from run_inference_simple import get_video_vit_base
+    from run_inference_simple import get_video_vit_base, get_video_vit_small
 
-    model = get_video_vit_base(with_flash=False)
+    factory = {
+        "videomae_small": get_video_vit_small,
+        "videomae_base": get_video_vit_base,
+    }[args.arch]
+    model = factory(with_flash=False)
     model.load_state_dict(state, strict=True)
     cpu_state = {key: value.detach().cpu() for key, value in model.state_dict().items()}
 
@@ -70,7 +79,7 @@ def main() -> None:
     torch.save(cpu_state, output)
     metadata = {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
-        "architecture": "VideoMAE-B / vit_base_patch16_224",
+        "architecture": args.arch,
         "num_classes": 2,
         "num_frames": 16,
         "view_fps": 10,
