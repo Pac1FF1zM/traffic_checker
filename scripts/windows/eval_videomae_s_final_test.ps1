@@ -61,6 +61,7 @@ $env:PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"
     --test_num_segment 1 `
     --test_num_crop 1 `
     --no_flash_attn `
+    --no_auto_resume `
     --pin_mem `
     --seed 42
 if ($LASTEXITCODE -ne 0) { throw "Held-out evaluation failed." }
