@@ -46,6 +46,20 @@ limited.
 python scripts\prepare_dada_half_splits.py --data-root C:\datasets\DADA2000 --fraction 0.5 --validation-fraction 0.1 --test-fraction 0.2 --seed 42
 ```
 
+Download only the selected RGB clips from the official multi-volume release. The
+downloader reads the remote ZIP index and does not store the 117 GB source archive.
+Frames are reduced to a 256-pixel short side (the training crop is 224) and packed
+directly into the `images.zip` files expected by Simple-TAD. Interrupted runs keep
+completed clips and write the current clip atomically.
+
+```powershell
+# Two-clip end-to-end check. The reusable remote index is about 460 MiB.
+python scripts\download_dada_selected.py --data-root C:\datasets\DADA2000 --short-side 256 --limit-clips 2
+
+# Complete the selected dataset; the first two clips are reused.
+python scripts\download_dada_selected.py --data-root C:\datasets\DADA2000 --short-side 256
+```
+
 The command preserves the originals as `official_training.txt` and
 `official_validation.txt`, writes `half_training.txt`, `validation.txt`,
 `test.txt`, and `selected_dataset_clips.txt`, and creates

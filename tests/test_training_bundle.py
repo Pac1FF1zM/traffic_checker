@@ -6,6 +6,7 @@ import sys
 import json
 import subprocess
 import csv
+import struct
 from pathlib import Path
 
 import torch
@@ -14,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.lab.export_videomae_b_checkpoint import extract_state_dict
 from scripts.lab.preflight_training import audit_splits, read_split, validate_dataset
+from scripts.download_dada_selected import clip_from_archive_name, parse_zip64_extra
 
 
 def write_zip(path: Path, frames: int = 16) -> None:
@@ -133,10 +135,26 @@ def test_exporter_unwraps_and_removes_ddp_prefix() -> None:
     assert torch.equal(state["head.bias"], tensor)
 
 
+def test_selective_dada_downloader_parses_archive_metadata() -> None:
+    assert clip_from_archive_name("DADA2000/8/002/images/0134.png") == (
+        "8/002",
+        "0134.png",
+    )
+    assert clip_from_archive_name("DADA2000/8/002/fixation/0134.png") is None
+    extra = struct.pack("<HHQ", 0x0001, 8, 5_000_000_000)
+    assert parse_zip64_extra(extra, 10, 9, 0xFFFFFFFF, 2) == (
+        10,
+        9,
+        5_000_000_000,
+        2,
+    )
+
+
 if __name__ == "__main__":
     test_split_audit_detects_source_leakage()
     test_split_audit_detects_test_leakage()
     test_dada_layout_passes_and_checks_archives()
     test_split_generator_is_disjoint_and_deterministic()
     test_exporter_unwraps_and_removes_ddp_prefix()
+    test_selective_dada_downloader_parses_archive_metadata()
     print("training bundle tests passed")
