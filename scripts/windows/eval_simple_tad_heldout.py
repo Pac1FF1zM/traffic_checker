@@ -47,14 +47,27 @@ def build_heldout_dataset(is_train, test_mode, args):
 
 
 datasets_frame.build_frame_dataset = build_heldout_dataset
-_barrier = dist.barrier
 
 
-def safe_barrier(*args, **kwargs):
-    if dist.is_available() and dist.is_initialized():
-        return _barrier(*args, **kwargs)
-    return None
+# Upstream final_test has a single-process branch that references its output
+# tensor before assignment. Present the Windows process as a world-size-one
+# group and provide local collective shims, avoiding NCCL while preserving the
+# exact predictions and metrics that a one-rank distributed run would produce.
+def local_all_gather_object(output, value, *args, **kwargs):
+    output[0] = value
 
 
-dist.barrier = safe_barrier
+def local_all_gather(output, value, *args, **kwargs):
+    output[0].copy_(value)
+
+
+dist.is_initialized = lambda: True
+dist.get_rank = lambda *args, **kwargs: 0
+dist.get_world_size = lambda *args, **kwargs: 1
+dist.barrier = lambda *args, **kwargs: None
+dist.all_reduce = lambda tensor, *args, **kwargs: tensor
+dist.all_gather_object = local_all_gather_object
+dist.all_gather = local_all_gather
+
+
 runpy.run_path(str(UPSTREAM / "run_frame_finetuning.py"), run_name="__main__")
