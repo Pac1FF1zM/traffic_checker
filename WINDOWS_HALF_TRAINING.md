@@ -1,0 +1,80 @@
+# Leakage-safe DADA-2000 half training on Windows
+
+This profile targets one RTX 4060 Ti 8 GB and uses VideoMAE-S. It does not use
+the WIUT blind videos for training, model selection, calibration, or qualitative
+selection.
+
+## Split policy
+
+The split generator preserves the official DADA separation:
+
+1. The official training list is the only source for training and tuning.
+2. A deterministic, stratified 50% pool is selected from official training.
+3. Ten percent of that selected pool becomes validation; the rest is training.
+4. The official validation list is renamed as the held-out test and is never
+   loaded by the training command.
+5. Stratification uses accident category, accident presence, and day/night.
+6. Every split is source-video-disjoint and recorded with SHA-256 hashes.
+
+Do not repeatedly evaluate the test split. Run it once, after freezing the
+model, checkpoint-selection rule, thresholds, and all hyperparameters.
+
+## Expected dataset layout
+
+```text
+DADA2000/
+  annotation/full_anno.csv
+  DADA2K_my_split/training.txt
+  DADA2K_my_split/validation.txt
+  frames/<category>/<clip>/images.zip
+```
+
+Download the Simple-TAD annotation package from:
+
+```text
+https://huggingface.co/tue-mps/simple-tad/resolve/main/datasets/D2K.zip
+```
+
+Use the official DADA-2000 source for frame data. Keep only the source clips
+listed by the generated `half_pool.txt` plus `test.txt` when disk space is
+limited.
+
+## Generate immutable splits
+
+```powershell
+python scripts\prepare_dada_half_splits.py --data-root C:\datasets\DADA2000 --fraction 0.5 --validation-fraction 0.1 --seed 42
+```
+
+The command preserves the originals as `official_training.txt` and
+`official_validation.txt`, writes `half_training.txt`, `validation.txt`, and
+`test.txt`, and creates `split_manifest.json`.
+
+## Smoke test
+
+```powershell
+.\scripts\windows\train_videomae_s_half.ps1 -DataRoot C:\datasets\DADA2000 -Smoke
+```
+
+The preflight checks package versions, VRAM, checkpoint presence, archive
+integrity samples, duplicate sources, pairwise split overlap, and forbidden
+WIUT references. Training does not start if any check fails.
+
+## Full run
+
+```powershell
+.\scripts\windows\train_videomae_s_half.ps1 -DataRoot C:\datasets\DADA2000
+```
+
+Select the checkpoint by validation AUROC only. Do not inspect the held-out test
+predictions while changing the model.
+
+## One-shot final test
+
+After every choice is frozen:
+
+```powershell
+.\scripts\windows\eval_videomae_s_final_test.ps1 -DataRoot C:\datasets\DADA2000 -FinalTest
+```
+
+This explicit gate records the checkpoint hash and test-split hash before
+evaluation. Test metrics are for final reporting, not further tuning.
