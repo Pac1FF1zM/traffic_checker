@@ -56,7 +56,7 @@ git submodule update --init --recursive
 python .\tests\test_baseline.py
 python .\tests\test_demo_calibration.py
 python .\tests\test_training_bundle.py
-python -m py_compile .\solution.py .\src\*.py .\run_submission.py .\evaluate.py .\demo_api.py
+python -m compileall -q .\solution.py .\src .\run_submission.py .\evaluate.py .\demo_api.py
 python .\evaluate.py --pred .\predictions_samples.json --validate-only
 ```
 
