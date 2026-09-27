@@ -8,6 +8,8 @@ import json
 import os
 import shutil
 import struct
+import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -382,6 +384,89 @@ def build_remote_index(selected: set[str]) -> list[ClipGroup]:
     return result
 
 
+def download_range_with_curl(
+    disk: int, start: int, end: int, label: str
+) -> bytes:
+    """Download one exact range with Windows curl and verify the response."""
+    expected = end - start
+    curl = shutil.which("curl.exe") or shutil.which("curl")
+    if curl is None:
+        raise RuntimeError("curl is required for resilient Google Drive downloads")
+    handle = tempfile.NamedTemporaryFile(
+        prefix="dada-range-", suffix=".partial", delete=False
+    )
+    temporary = Path(handle.name)
+    handle.close()
+    cooldowns = (0, 5, 15, 30, 60, 120, 300)
+    try:
+        for attempt in range(1, 13):
+            temporary.unlink(missing_ok=True)
+            if attempt > 1:
+                delay = cooldowns[min(attempt - 1, len(cooldowns) - 1)]
+                print(
+                    f"Retrying {label} with curl in {delay}s "
+                    f"(attempt {attempt}/12)",
+                    flush=True,
+                )
+                time.sleep(delay)
+            separator = "&" if "?" in drive_url(disk) else "?"
+            url = (
+                f"{drive_url(disk)}{separator}curl_range="
+                f"{start}-{time.time_ns()}"
+            )
+            print(
+                f"Downloading {label}: {expected / 1024**2:.1f} MiB",
+                flush=True,
+            )
+            command = [
+                curl,
+                "--location",
+                "--show-error",
+                "--connect-timeout",
+                "30",
+                "--max-time",
+                "1800",
+                "--speed-time",
+                "120",
+                "--speed-limit",
+                "1024",
+                "--max-filesize",
+                str(expected),
+                "--range",
+                f"{start}-{end - 1}",
+                "--header",
+                "Accept-Encoding: identity",
+                "--header",
+                "Cache-Control: no-cache",
+                "--user-agent",
+                "Mozilla/5.0 traffic-checker/1.0",
+                "--output",
+                str(temporary),
+                "--write-out",
+                "%{http_code}",
+                url,
+            ]
+            completed = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            status = completed.stdout.strip()[-3:]
+            actual = temporary.stat().st_size if temporary.exists() else 0
+            if completed.returncode == 0 and status == "206" and actual == expected:
+                return temporary.read_bytes()
+            print(
+                f"curl did not return the requested range for {label}: "
+                f"exit={completed.returncode}, HTTP={status!r}, "
+                f"bytes={actual}/{expected}",
+                flush=True,
+            )
+        raise RuntimeError(f"curl could not download {label} after 12 attempts")
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def download_span(group: ClipGroup) -> tuple[bytes, dict[int, int]]:
     chunks: list[bytes] = []
     disk_bases: dict[int, int] = {}
@@ -393,8 +478,7 @@ def download_span(group: ClipGroup) -> tuple[bytes, dict[int, int]]:
             continue
         disk_bases[disk] = total - start
         label = f"{group.clip} from {DRIVE_VOLUMES[disk][0]}"
-        with HTTPRangeReader(drive_url(disk), start, end, label) as reader:
-            chunk = reader.read_exact(end - start)
+        chunk = download_range_with_curl(disk, start, end, label)
         chunks.append(chunk)
         total += len(chunk)
     return b"".join(chunks), disk_bases
