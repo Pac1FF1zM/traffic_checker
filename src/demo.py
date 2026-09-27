@@ -11,6 +11,62 @@ from .baseline import EventAnalyzer, YoloDetector, collision_risk
 from .temporal import create_temporal_model, fuse_risk
 
 
+class AdaptiveTemporalCalibrator:
+    """Turn a scene-biased classifier score into a causal change score.
+
+    A dashcam-trained classifier can sit near one for an entire fixed-camera
+    clip.  The slowly adapting baseline treats that steady value as the scene's
+    normal appearance and only surfaces a sufficiently large upward change.
+    """
+
+    def __init__(
+        self,
+        *,
+        warmup_samples: int = 4,
+        margin: float = 0.10,
+        scale: float = 0.35,
+        alpha_up: float = 0.02,
+        alpha_down: float = 0.12,
+    ) -> None:
+        self.warmup_samples = max(1, int(warmup_samples))
+        self.margin = max(0.0, float(margin))
+        self.scale = max(1e-6, float(scale))
+        self.alpha_up = min(1.0, max(0.0, float(alpha_up)))
+        self.alpha_down = min(1.0, max(0.0, float(alpha_down)))
+        self.baseline: float | None = None
+        self.samples = 0
+
+    def update(self, score: float) -> float:
+        score = min(1.0, max(0.0, float(score)))
+        if self.baseline is None:
+            self.baseline = score
+            self.samples = 1
+            return 0.0
+
+        excess = max(0.0, score - self.baseline - self.margin)
+        calibrated = min(1.0, excess / self.scale)
+        if self.samples < self.warmup_samples:
+            calibrated = 0.0
+
+        alpha = self.alpha_up if score > self.baseline else self.alpha_down
+        self.baseline += alpha * (score - self.baseline)
+        self.samples += 1
+        return calibrated
+
+
+def fuse_fixed_camera_risk(ttc_score: float, temporal_change: float) -> float:
+    """Require cross-source agreement while keeping each source visible.
+
+    A single unsupported signal is capped at a non-alarm level.  Agreement
+    between changing appearance and converging trajectories can still produce
+    a high score.
+    """
+
+    ttc = min(1.0, max(0.0, float(ttc_score)))
+    temporal = min(1.0, max(0.0, float(temporal_change)))
+    return float(max(0.35 * ttc, 0.30 * temporal, ttc * temporal))
+
+
 def analyze_video_detailed(video_path: str | Path, config: dict[str, Any]) -> dict[str, Any]:
     """Return events and a causal risk timeline without processing the video twice."""
     source = str(video_path)
@@ -25,12 +81,23 @@ def analyze_video_detailed(video_path: str | Path, config: dict[str, Any]) -> di
     detector = YoloDetector(config)
     analyzer = EventAnalyzer(config, fps, width, height)
     temporal = create_temporal_model(config)
+    fixed_camera_mode = bool(config.get("demo_fixed_camera_mode", False))
+    calibrator = (
+        AdaptiveTemporalCalibrator(
+            warmup_samples=int(config.get("fixed_camera_warmup_samples", 4)),
+            margin=float(config.get("fixed_camera_temporal_margin", 0.10)),
+            scale=float(config.get("fixed_camera_temporal_scale", 0.35)),
+        )
+        if fixed_camera_mode
+        else None
+    )
     detection_stride = max(1, int(config["frame_stride"]))
     timeline_period = max(0.25, float(config.get("demo_timeline_period", 0.5)))
 
     frame_index = 0
     next_timeline_t = 0.0
     last_ttc_score = 0.0
+    last_raw_temporal_score = 0.0
     last_temporal_score = 0.0
     smoothed_risk = 0.0
     timeline: list[dict[str, float]] = []
@@ -46,8 +113,12 @@ def analyze_video_detailed(video_path: str | Path, config: dict[str, Any]) -> di
             if temporal is not None:
                 temporal_score = temporal.step(frame, t_sec)
                 if temporal_score is not None:
-                    last_temporal_score = temporal_score
-                    analyzer.record_temporal_risk(t_sec, temporal_score)
+                    last_raw_temporal_score = temporal_score
+                    last_temporal_score = (
+                        calibrator.update(temporal_score) if calibrator is not None else temporal_score
+                    )
+                    if not fixed_camera_mode:
+                        analyzer.record_temporal_risk(t_sec, last_temporal_score)
 
             if frame_index % detection_stride == 0:
                 detections = detector(frame)
@@ -55,7 +126,13 @@ def analyze_video_detailed(video_path: str | Path, config: dict[str, Any]) -> di
                 active_tracks = [track for track in analyzer.tracker.tracks.values() if track.missed == 0]
                 last_ttc_score = collision_risk(active_tracks)
 
-            raw_risk = fuse_risk(last_ttc_score, last_temporal_score)
+            raw_risk = (
+                fuse_fixed_camera_risk(last_ttc_score, last_temporal_score)
+                if fixed_camera_mode
+                else fuse_risk(last_ttc_score, last_temporal_score)
+            )
+            if fixed_camera_mode:
+                analyzer.record_temporal_risk(t_sec, raw_risk)
             alpha = 0.65 if raw_risk > smoothed_risk else 0.12
             smoothed_risk = alpha * raw_risk + (1.0 - alpha) * smoothed_risk
             if t_sec + 1e-6 >= next_timeline_t:
@@ -64,6 +141,7 @@ def analyze_video_detailed(video_path: str | Path, config: dict[str, Any]) -> di
                         "time": round(t_sec, 3),
                         "risk": round(smoothed_risk, 6),
                         "visual_risk": round(last_temporal_score, 6),
+                        "raw_visual_score": round(last_raw_temporal_score, 6),
                         "ttc_risk": round(last_ttc_score, 6),
                     }
                 )
@@ -101,8 +179,13 @@ def analyze_video_detailed(video_path: str | Path, config: dict[str, Any]) -> di
         "events": events,
         "timeline": timeline,
         "model": {
-            "name": "VideoMAE-S + YOLO11n/TTC",
+            "name": (
+                "VideoMAE-S + YOLO11n/TTC (fixed-camera calibrated)"
+                if fixed_camera_mode
+                else "VideoMAE-S + YOLO11n/TTC"
+            ),
             "causal": True,
+            "fixed_camera_calibration": fixed_camera_mode,
             "threshold": float(config["temporal_accident_threshold"]),
         },
     }

@@ -38,6 +38,15 @@ def demo_config() -> dict:
     config["temporal_arch"] = "videomae_small"
     config["temporal_enabled"] = True
     config["temporal_required"] = True
+    # The deployment target is a stationary road camera, while the available
+    # VideoMAE checkpoint was trained on dashcam clips.  Use conservative
+    # causal calibration and require temporal/TTC agreement for a high alarm.
+    config["demo_fixed_camera_mode"] = True
+    config["fixed_camera_warmup_samples"] = 4
+    config["fixed_camera_temporal_margin"] = 0.10
+    config["fixed_camera_temporal_scale"] = 0.35
+    config["temporal_accident_threshold"] = 0.65
+    config["enable_near_miss_heuristic"] = False
     return config
 
 
