@@ -60,6 +60,15 @@ python scripts\download_dada_selected.py --data-root C:\datasets\DADA2000 --shor
 python scripts\download_dada_selected.py --data-root C:\datasets\DADA2000 --short-side 256
 ```
 
+If the official Google Drive volume reports `Quota exceeded`, keep all completed
+clips and fill only the missing ones from the independent Hugging Face mirror.
+The mirror is a sequential 124 GB gzip stream, so this avoids extra disk usage but
+may transfer the whole compressed dataset before every missing clip is found.
+
+```powershell
+python scripts\download_dada_missing_hf.py --data-root C:\datasets\DADA2000
+```
+
 The command preserves the originals as `official_training.txt` and
 `official_validation.txt`, writes `half_training.txt`, `validation.txt`,
 `test.txt`, and `selected_dataset_clips.txt`, and creates
