@@ -156,6 +156,10 @@ than guessing. Set `WIUT_SCENE_CONFIG` to load another file.
 
 ## Local team website and live demo
 
+Public presentation: <https://pac1ff1zm.github.io/traffic_checker/>. GitHub
+Pages uses a clearly labelled causal browser motion baseline when the GPU API
+is unavailable; the trained VideoMAE-S pipeline runs with the local setup below.
+
 ```powershell
 python -m pip install -r requirements-demo.txt
 Push-Location .\website

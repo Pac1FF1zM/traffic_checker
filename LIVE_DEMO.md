@@ -3,6 +3,12 @@
 The React site and Python inference API are served from one local address. The
 final checkpoint remains outside Git and is supplied explicitly at startup.
 
+The public GitHub Pages build cannot run PyTorch or CUDA. When the local API is
+unavailable it therefore switches to a clearly labelled causal browser motion
+baseline. That fallback is useful for exercising the upload, timeline, and
+event UI; it is not the trained model and its output is not included in the
+reported DADA metrics. Start the local API below to demo the full GPU pipeline.
+
 ## One-time setup on Windows
 
 From the repository root with the Python 3.11 virtual environment activated:

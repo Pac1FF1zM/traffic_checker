@@ -22,6 +22,99 @@ const eventNames = {
 const pct = (value = 0) => `${Math.round(value * 100)}%`
 const seconds = (value = 0) => `${Number(value).toFixed(1)} s`
 
+const waitForMediaEvent = (media, name) => new Promise((resolve, reject) => {
+  const cleanup = () => {
+    window.clearTimeout(timeout)
+    media.removeEventListener(name, onSuccess)
+    media.removeEventListener('error', onError)
+  }
+  const onSuccess = () => { cleanup(); resolve() }
+  const onError = () => { cleanup(); reject(new Error('The browser could not decode this video.')) }
+  const timeout = window.setTimeout(() => { cleanup(); reject(new Error(`Video ${name} timed out.`)) }, 15000)
+  media.addEventListener(name, onSuccess, { once: true })
+  media.addEventListener('error', onError, { once: true })
+})
+
+async function analyzeInBrowser(file) {
+  const started = performance.now()
+  const url = URL.createObjectURL(file)
+  const video = document.createElement('video')
+  video.muted = true
+  video.preload = 'auto'
+  video.src = url
+  try {
+    await waitForMediaEvent(video, 'loadedmetadata')
+    const duration = Number(video.duration)
+    if (!Number.isFinite(duration) || duration <= 0) throw new Error('The video duration is unavailable.')
+    if (duration > 120.5) throw new Error('The public browser fallback accepts clips up to two minutes.')
+
+    const canvas = document.createElement('canvas')
+    canvas.width = 64; canvas.height = 36
+    const context = canvas.getContext('2d', { willReadFrequently: true })
+    const period = Math.max(0.5, duration / 120)
+    const timeline = []
+    let previous = null
+    let baseline = 0
+    let smoothed = 0
+    let maxVisualChange = 0
+
+    for (let t = 0; t < duration; t += period) {
+      video.currentTime = Math.min(Math.max(0.001, t), Math.max(0.001, duration - 0.01))
+      await waitForMediaEvent(video, 'seeked')
+      context.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data
+      const gray = new Uint8Array(canvas.width * canvas.height)
+      for (let pixel = 0, source = 0; pixel < gray.length; pixel += 1, source += 4) {
+        gray[pixel] = Math.round(0.299 * rgba[source] + 0.587 * rgba[source + 1] + 0.114 * rgba[source + 2])
+      }
+      let change = 0
+      if (previous) {
+        for (let pixel = 0; pixel < gray.length; pixel += 1) change += Math.abs(gray[pixel] - previous[pixel])
+        change /= gray.length
+        baseline = baseline ? 0.92 * baseline + 0.08 * change : change
+      }
+      const excess = Math.max(0, change - Math.max(5, baseline * 1.55))
+      const rawRisk = Math.min(1, excess / 24)
+      smoothed = rawRisk > smoothed ? 0.7 * rawRisk + 0.3 * smoothed : 0.18 * rawRisk + 0.82 * smoothed
+      maxVisualChange = Math.max(maxVisualChange, change / 255)
+      timeline.push({ time: Number(t.toFixed(3)), risk: Number(smoothed.toFixed(6)), visual_risk: Number((change / 255).toFixed(6)), ttc_risk: 0 })
+      previous = gray
+    }
+
+    const events = []
+    let eventStart = null
+    for (const point of timeline) {
+      if (point.risk >= 0.65 && eventStart === null) eventStart = point.time
+      if (point.risk < 0.65 && eventStart !== null) {
+        if (point.time - eventStart >= 0.5) events.push({ start: eventStart, end: point.time, label: 'near_miss' })
+        eventStart = null
+      }
+    }
+    if (eventStart !== null) events.push({ start: eventStart, end: duration, label: 'near_miss' })
+    const maxPoint = timeline.reduce((best, point) => point.risk > best.risk ? point : best, { risk: 0, time: 0 })
+    const processingSeconds = (performance.now() - started) / 1000
+    return {
+      filename: file.name,
+      video: { duration, frames: timeline.length, unit: 'samples' },
+      summary: {
+        max_risk: maxPoint.risk,
+        max_risk_time: maxPoint.time,
+        average_risk: timeline.reduce((total, point) => total + point.risk, 0) / Math.max(1, timeline.length),
+        max_ttc_risk: 0,
+        max_visual_change: maxVisualChange,
+        processing_seconds: processingSeconds,
+        realtime_factor: processingSeconds / duration,
+        event_count: events.length,
+      },
+      events,
+      timeline,
+      model: { name: 'Browser causal motion fallback', causal: true, fixed_camera_calibration: true },
+    }
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 function RiskChart({ timeline = [], duration = 0 }) {
   const points = useMemo(() => {
     if (!timeline.length || !duration) return ''
@@ -65,28 +158,34 @@ function DemoSection() {
   const analyze = async () => {
     if (!file) return
     setStatus('running'); setError('')
-    const body = new FormData(); body.append('file', file)
     try {
-      const response = await fetch(`${API_BASE}/api/analyze`, { method: 'POST', body })
-      const payload = await response.json()
-      if (!response.ok) throw new Error(payload.detail || 'Analysis failed')
+      let payload
+      if (backend?.status === 'ready') {
+        const body = new FormData(); body.append('file', file)
+        const response = await fetch(`${API_BASE}/api/analyze`, { method: 'POST', body })
+        payload = await response.json()
+        if (!response.ok) throw new Error(payload.detail || 'Analysis failed')
+      } else {
+        payload = await analyzeInBrowser(file)
+      }
       setResult(payload); setStatus('done')
     } catch (requestError) { setError(requestError.message); setStatus('error') }
   }
 
   const ready = backend?.status === 'ready'
+  const fallbackReady = backend && !ready
   return (
     <section id="demo" className="section demo-section">
-      <div className="section-heading"><div className="eyebrow">03 — LIVE DEMO</div><h2>Upload a clip. <span>See the risk.</span></h2><p>The final causal model sees only current and previous frames. Uploads up to 300 MB are accepted; clips up to two minutes are recommended. Your video is processed locally and deleted immediately after analysis.</p></div>
-      <div className="demo-status-row"><span className={`backend-status ${ready ? 'online' : 'offline'}`}><i />{ready ? `GPU ready · ${backend.device}` : 'Local GPU backend offline'}</span><span>Fixed-camera calibration · causal</span></div>
+      <div className="section-heading"><div className="eyebrow">03 — LIVE DEMO</div><h2>Upload a clip. <span>See the risk.</span></h2><p>The final GPU model sees only current and previous frames. Uploads up to 300 MB are accepted; clips up to two minutes are recommended. If the GPU service is unavailable, the public page runs a clearly labelled lightweight causal motion fallback in your browser.</p></div>
+      <div className="demo-status-row"><span className={`backend-status ${ready || fallbackReady ? 'online' : 'offline'}`}><i />{ready ? `GPU ready · ${backend.device}` : fallbackReady ? 'Browser motion fallback ready' : 'Checking inference backend…'}</span><span>Fixed-camera calibration · causal</span></div>
       <div className="demo-grid">
         <div className="upload-card">
           <div className={`drop-zone ${file ? 'has-file' : ''}`} onClick={() => inputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); chooseFile(event.dataTransfer.files[0]) }} role="button" tabIndex={0} onKeyDown={(event) => event.key === 'Enter' && inputRef.current?.click()}>
             <input ref={inputRef} type="file" accept="video/*" hidden onChange={(event) => chooseFile(event.target.files[0])} />
             {preview ? <video src={preview} controls /> : <div className="upload-empty"><span>↑</span><strong>Drop a traffic video here</strong><small>MP4, MOV, AVI, MKV or WebM · up to 300 MB</small></div>}
           </div>
-          <div className="file-row"><div><strong>{file?.name || 'No video selected'}</strong><span>{file ? `${(file.size / 1024 / 1024).toFixed(1)} MB` : 'Choose a short clip for the fastest demo'}</span></div><button className="primary-button" disabled={!file || !ready || status === 'running'} onClick={analyze}>{status === 'running' ? 'Analyzing…' : 'Analyze video'}</button></div>
-          {status === 'running' && <div className="analysis-progress"><i /><span>Running detection, tracking and temporal risk inference on the GPU…</span></div>}
+          <div className="file-row"><div><strong>{file?.name || 'No video selected'}</strong><span>{file ? `${(file.size / 1024 / 1024).toFixed(1)} MB` : 'Choose a clip up to two minutes'}</span></div><button className="primary-button" disabled={!file || !backend || status === 'running'} onClick={analyze}>{status === 'running' ? 'Analyzing…' : 'Analyze video'}</button></div>
+          {status === 'running' && <div className="analysis-progress"><i /><span>{ready ? 'Running detection, tracking and temporal risk inference on the GPU…' : 'Running causal motion analysis in this browser…'}</span></div>}
           {error && <div className="demo-error">{error}</div>}
         </div>
         <div className={`analysis-card ${result ? 'has-result' : ''}`}>
@@ -94,7 +193,7 @@ function DemoSection() {
             <div className="analysis-header"><div><span>MAXIMUM RISK</span><strong>{pct(result.summary.max_risk)}</strong></div><div><span>AT</span><strong>{seconds(result.summary.max_risk_time)}</strong></div><div><span>EVENTS</span><strong>{result.summary.event_count}</strong></div></div>
             <RiskChart timeline={result.timeline} duration={result.video.duration} />
             <div className="event-list">{result.events.length ? result.events.map((event, index) => <div className="event-row" key={`${event.label}-${index}`}><i /><strong>{eventNames[event.label] || event.label}</strong><span>{seconds(event.start)} — {seconds(event.end)}</span></div>) : <div className="no-events">No thresholded traffic events detected.</div>}</div>
-            <div className="runtime-row"><span>{result.video.frames.toLocaleString()} frames</span><span>{seconds(result.summary.processing_seconds)} processing</span><span>{result.summary.realtime_factor.toFixed(2)}× video duration</span>{result.summary.max_ttc_risk !== undefined && <span>max TTC {pct(result.summary.max_ttc_risk)}</span>}{result.summary.max_visual_change !== undefined && <span>max visual Δ {pct(result.summary.max_visual_change)}</span>}</div>
+            <div className="runtime-row"><span>{result.video.frames.toLocaleString()} {result.video.unit || 'frames'}</span><span>{seconds(result.summary.processing_seconds)} processing</span><span>{result.summary.realtime_factor.toFixed(2)}× video duration</span>{result.summary.max_ttc_risk !== undefined && <span>max TTC {pct(result.summary.max_ttc_risk)}</span>}{result.summary.max_visual_change !== undefined && <span>max visual Δ {pct(result.summary.max_visual_change)}</span>}{result.model?.name && <span>{result.model.name}</span>}</div>
           </>}
         </div>
       </div>
