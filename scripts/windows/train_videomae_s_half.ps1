@@ -118,8 +118,12 @@ function Invoke-Stage {
     $resume = Join-Path $stageOutput "checkpoint-last.pth"
     if (Test-Path $resume) { $arguments += @("--resume", $resume) }
     if ($FreezeSpec) { $arguments += @("--freeze_layers", $FreezeSpec) }
-    & $Python @arguments
-    if ($LASTEXITCODE -ne 0) { throw "Training stage $Name failed." }
+    # Keep native stdout visible without returning it as part of this function's
+    # value. Windows PowerShell otherwise mixes every training log line into
+    # $stageOutput when the caller assigns Invoke-Stage's return value.
+    & $Python @arguments | Out-Host
+    $trainingExitCode = $LASTEXITCODE
+    if ($trainingExitCode -ne 0) { throw "Training stage $Name failed." }
     return $stageOutput
 }
 
