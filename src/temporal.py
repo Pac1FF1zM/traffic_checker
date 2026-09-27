@@ -154,7 +154,14 @@ class TemporalRiskModel:
         # tensors; no_grad remains read-only while working on that backend.
         with torch.no_grad():
             output = self.model(tensor)
-        self.last_score = float(output[0, 1].detach().cpu().item())
+        scores = output[0]
+        looks_like_probability = bool(
+            torch.all(scores >= 0).item()
+            and torch.all(scores <= 1).item()
+            and abs(float(scores.sum().detach().cpu().item()) - 1.0) <= 1e-3
+        )
+        probabilities = scores if looks_like_probability else torch.softmax(scores, dim=0)
+        self.last_score = float(probabilities[1].detach().cpu().item())
         return self.last_score
 
 

@@ -1,4 +1,23 @@
-# React + Vite
+# WIUT Traffic Vision website
+
+The Vite frontend includes the project narrative, held-out metrics, and a live
+video upload interface backed by the local GPU API in `demo_api.py`.
+
+For the complete Windows setup and launch commands, see
+[`../LIVE_DEMO.md`](../LIVE_DEMO.md).
+
+## Frontend development
+
+Run the API on port 8000, then:
+
+```bash
+npm install
+npm run dev
+```
+
+Set `VITE_API_URL=http://127.0.0.1:8000` when the API is on a different origin.
+
+## Vite notes
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
